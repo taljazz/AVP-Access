@@ -367,8 +367,8 @@ or written by the diagnostic. Both Windows and getopt argument paths recognize i
 A/Enter/Space advances and B/Escape cancels. Advancing speaks and schedules two
 beeps after 4.5 and 5.5 seconds. T/D-pad Down replays the current example's beeps
 immediately and one second later, without speaking again. Advancing or replaying
-cancels any old pending beeps. Left/ahead/right at 12 meters are followed by ahead at 5 and 25
-meters, then the same world contact as example 2 with a quarter-turn listener
+cancels any old pending beeps. Left/ahead/right at 12 meters are followed by ahead
+at 5 and 25 meters, then the same world contact as example 2 with a quarter-turn listener
 rotation. The last example should again be heard to the left and spoken at 9 o'clock.
 
 The diagnostic checks the sound system and all three samples before starting,
@@ -384,10 +384,18 @@ playback failure and state cleanup. The executable help lists the new option.
 In the first headphone trial, the user heard speech but reported no beeps. The
 trace contains advances and repeats, with no playback calls before the user closed
 the window. Repeating originally restarted the 4.5-second delay. Replay now starts
-a beep immediately to avoid that delay and make audio diagnosis direct. The immediate replay regression checks pass;
-user listening confirmation remains pending.
-Run `tests\tracker\run_listening_tests.bat` for
-the diagnostic controls/timing checks and `tools\run.bat -w --padtrace --trackertest`
+a beep immediately to avoid that delay and make audio diagnosis direct. The
+immediate replay regression checks pass.
+
+In the revised headphone trial, the live trace recorded valid playback handles
+for all six examples and all three distance-tone samples. The user confirmed
+that the left-hand cue was audible, 12 o'clock was centered, 3 o'clock was on the
+right, and the higher 5-meter and lower 25-meter tones were distinguishable.
+The guided directional-listening test is therefore user-confirmed. This does
+not establish live detection of real level contacts; those checks remain pending.
+
+Run `tests\tracker\run_listening_tests.bat` for the diagnostic controls/timing
+checks and `tools\run.bat -w --padtrace --trackertest`
 for the real listening test. Actual gameplay encounters and tracker lifecycle
 transitions remain separate live checks listed in section 8.
 
