@@ -9,6 +9,7 @@
 #include "access/acc_media.h"
 #include "access/acc_pad.h"
 #include "access/acc_tracker.h"
+#include "access/acc_tracker_test.h"
 #include "oglfunc.h"
 
 #if !defined(_MSC_VER)
@@ -133,6 +134,7 @@ static const char *TestMoviePath = NULL;
 static int WantIntroSequence = 0;
 static int TestPlotMessage = -1;
 static int TestPadSeconds = 0;
+static int TestTracker = 0;
 /* AVP Access: was 0 while the only switch (-j) also sets 0, so a controller
    could never be enabled at all. On by default; -j still turns it off. */
 static int WantJoystick = 1;
@@ -1479,6 +1481,7 @@ char *AvpCDPath = 0;
 
 #if !defined(_MSC_VER)
 static const struct option getopt_long_options[] = {
+{ "trackertest", 0, NULL, 256 },
 { "help",	0,	NULL,	'h' },
 { "version",	0,	NULL,	'v' },
 { "fullscreen",	0,	NULL,	'f' },
@@ -1501,6 +1504,7 @@ static const struct option getopt_long_options[] = {
 static const char *usage_string =
 "Aliens vs Predator Linux - http://www.icculus.org/avp/\n"
 "Based on Rebellion Developments AvP Gold source\n"
+"      [--trackertest]         Guided tracker listening examples\n"
 "      [-h | --help]           Display this help message\n"
 "      [-v | --version]        Display the game version\n"
 "      [-f | --fullscreen]     Run the game fullscreen\n"
@@ -1520,6 +1524,9 @@ int main(int argc, char *argv[])
 	opterr = 0;
 	while ((c = getopt_long(argc, argv, "hvfwscdg:p:", getopt_long_options, NULL)) != -1) {
 		switch(c) {
+			case 256:
+				TestTracker = 1;
+				break;
 			case 'h':
 				printf("%s", usage_string);
 				exit(EXIT_SUCCESS);
@@ -1592,6 +1599,8 @@ int main(int argc, char *argv[])
 				opengl_library = argv[++i];
 			} else if (!strcmp(a, "-intro") || !strcmp(a, "--intro")) {
 				WantIntroSequence = 1;
+			} else if (!strcmp(a, "--trackertest")) {
+				TestTracker = 1;
 			} else if (!strcmp(a, "--padtrace")) {
 				AccPadTrace = 1;
 			} else if (!strcmp(a, "--padtest")) {
@@ -1684,6 +1693,21 @@ int main(int argc, char *argv[])
 	AvP.PlayerType = I_Marine;
 	SetLevelToLoad(AVP_ENVIRONMENT_INVASION);
 #endif
+
+	/* Guided simulated contacts use the real tracker speech and audio path,
+	   before entering any level or profile menu. */
+	if (TestTracker) {
+		extern void SelectMenuDisplayMode(void);
+		int result;
+		SelectMenuDisplayMode();
+		SDL_SetWindowTitle(window, "AVP Access - Tracker listening test");
+		SDL_FillSurfaceRect(surface, NULL, 0);
+		FlipBuffers();
+		result = AccTracker_RunListeningTest();
+		SoundSys_End();
+		AccPad_Shutdown();
+		exit(result);
+	}
 
 	/* AVP Access: --padtest reports what SDL sees from the controller, so a pad
 	   that is detected but does nothing can be told apart from one the engine is

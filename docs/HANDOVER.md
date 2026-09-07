@@ -354,6 +354,37 @@ spoken bearings/distances with actual contacts, directional listening, and track
 pause/intensifier/restart transitions still need live verification. Prior Marine
 status is already user-confirmed above.
 
+### Guided tracker listening diagnostic — 2026-09-07
+
+`--trackertest` enters `AccTracker_RunListeningTest()` from `main.c` after normal
+sound initialization and `LoadSounds("PLAYER")`, before menus or levels. The six
+contacts are explicitly described as simulated; this is a repeatable listening
+test, not a new gameplay detection mode. `acc_tracker_test.c` calls the production
+tracker snapshot, announcement and positional-cue functions and uses the retail
+samples through the normal sound manager/OpenAL path. No save/profile is loaded
+or written by the diagnostic. Both Windows and getopt argument paths recognize it.
+
+A/Enter/Space advances, T/D-pad Down repeats, and B/Escape cancels. Each example
+speaks and schedules two beeps after 4.5 and 5.5 seconds; advancing/repeating cancels
+pending old beeps. Left/ahead/right at 12 meters are followed by ahead at 5 and 25
+meters, then the same world contact as example 2 with a quarter-turn listener
+rotation. The last example should again be heard to the left and spoken at 9 o'clock.
+
+The diagnostic checks the sound system and all three samples before starting,
+initializes a temporary view and nonzero frame time (input polling divides by it),
+and restores view/species/frame time and clears test contacts on return. A failed
+sound handle is reported as playback failure. The trace reports visited examples
+and valid playback handles; it never labels those as a listening pass. Window
+close uses the engine's existing immediate exit path.
+
+The full Windows build passed. The installed actual-module fixture passed 298
+checks covering all examples, timing, controls, cancellation, unavailable audio,
+playback failure and state cleanup. The executable help lists the new option.
+User listening confirmation is pending. Run `tests\tracker\run_listening_tests.bat` for
+the diagnostic controls/timing checks and `tools\run.bat -w --padtrace --trackertest`
+for the real listening test. Actual gameplay encounters and tracker lifecycle
+transitions remain separate live checks listed in section 8.
+
 ## 7. Debugging notes
 
 - Get real exit codes by running through a `.bat` that echoes `%ERRORLEVEL%`; PowerShell's

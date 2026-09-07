@@ -152,12 +152,30 @@ Flags added for testing without having to play to the content in question:
 | `--movie <file>` | Play one FMV and exit |
 | `--plotmsg <n>` | Decode one wall-monitor briefing and report on it |
 | `--padtest [secs]` | Report what SDL sees from the controller |
+| `--trackertest` | Guided speech and directional tracker listening examples |
 | `--padtrace` | Trace how pad state reaches the engine |
 | `-intro` | Re-enable the startup logo sequence |
 | `-w` / `-f` | Windowed / fullscreen |
 
 Note that MSVC has no `getopt_long`, so the Windows build previously ignored *every*
 command-line option; a hand-rolled parser was added.
+
+## Guided tracker listening test
+
+Run `tools\run.bat -w --trackertest` for six clearly announced simulated contacts
+using the game's actual tracker samples, speech and spatial audio. No level or
+profile menu is entered. Headphones make left/right comparisons easier.
+
+Press **A**, **Enter** or **Space** for each example. After the spoken bearing and
+distance, wait for two beeps. **D-pad Down** or **T** repeats the current example;
+**B** or **Escape** ends the test. Pressing next cancels any pending beeps from the
+previous example. Advancing once more after the sixth example closes the test.
+
+The sequence is left at 12 meters, ahead at 12 meters, right at 12 meters, ahead
+at 5 meters, ahead at 25 meters, then the same 12-meter world contact with the
+listener turned right (so it is now on the left). Near/far examples use the game's
+corresponding distance tones. These examples test listening and speech; detecting
+actual gameplay contacts remains a separate check.
 
 ## Controller regression checks
 
