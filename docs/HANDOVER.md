@@ -350,9 +350,9 @@ diagnosis. Automated audio checks inspect engine call parameters, not perceived
 direction or loudness. The user subsequently confirmed that the tracker readout
 works. The live trace shows repeated requests reaching NVDA with "No tracker
 contacts ahead." This verifies the shortcut and audible empty-tracker response;
-spoken bearings/distances with actual contacts, directional listening, and tracker
-pause/intensifier/restart transitions still need live verification. Prior Marine
-status is already user-confirmed above.
+subsequent guided listening and actual-contact verification are recorded below.
+Tracker pause/intensifier/restart transitions still need live verification. Prior
+Marine status is already user-confirmed above.
 
 ### Guided tracker listening diagnostic — 2026-09-07
 
@@ -391,13 +391,38 @@ In the revised headphone trial, the live trace recorded valid playback handles
 for all six examples and all three distance-tone samples. The user confirmed
 that the left-hand cue was audible, 12 o'clock was centered, 3 o'clock was on the
 right, and the higher 5-meter and lower 25-meter tones were distinguishable.
-The guided directional-listening test is therefore user-confirmed. This does
-not establish live detection of real level contacts; those checks remain pending.
+The guided directional-listening test is therefore user-confirmed. Separate
+verification with a real level contact is recorded in the following section.
 
 Run `tests\tracker\run_listening_tests.bat` for the diagnostic controls/timing
 checks and `tools\run.bat -w --padtrace --trackertest`
-for the real listening test. Actual gameplay encounters and tracker lifecycle
-transitions remain separate live checks listed in section 8.
+for the guided listening test. Tracker lifecycle transitions remain separate
+live checks listed in section 8.
+
+### Real Marine tracker contact — 2026-09-07
+
+The user completed an in-level test in a separate `-w --padtrace --debug` run.
+After loading a Marine level, the uppercase console commands `GOD` and `ALIENBOT`
+were used for setup. `ALIENBOT` creates a normal hunting Alien two meters ahead,
+using real dynamics and the normal tracker detection/sweep path. `GOD` prevents
+death but does not prevent health/armor decreasing. Debug mode disables game saves
+and normal best-statistics/progression updates; this is a temporary test session.
+
+The user confirmed the first Alien was created and the tracker reported it ahead.
+The live trace recorded `Nearest tracker contact at 12 o'clock, about 2 meters.`
+through NVDA and repeated `SID_TRACKER_WHEEP_HIGH` cues (ID 95) at changing world
+positions. The user separately confirmed hearing both the tracker beeps and the
+spoken contact report. Real in-level detection, contact speech and audible cues
+are therefore confirmed, in addition to the earlier guided headphone comparisons.
+
+A second `ALIENBOT` attempt reported module containment failure. That is the
+existing spawn routine rejecting a point outside a valid level module, not a
+tracker failure. The spawn also requires the Alien model already loaded by the
+level; missing-model errors are a different failure. No engine changes were needed
+for this test. Close the console and keep normal vision enabled before scanning.
+
+Remaining tracker checks are pause/resume, image-intensifier off/on and restart
+transitions. The first-contact success does not establish those lifecycle cases.
 
 ## 7. Debugging notes
 
@@ -421,9 +446,10 @@ transitions remain separate live checks listed in section 8.
 - Remaining live controller validation: reconnection, binding capture,
   loading/restart prompts, and other actions/characters. Menus, Marine movement/look,
   pause/resume, firing, jumping and interacting are user-confirmed (see §6).
-- Live verification of directional tracker beeps and spoken bearing/distance with
-  actual contacts, plus pause/resume, image intensifier and restart transitions.
-  The tracker shortcut and audible empty-tracker response are user-confirmed.
+- Remaining live tracker validation: pause/resume, image-intensifier off/on and
+  restart transitions. Real contact detection, spoken bearing/distance and beeps
+  are user-confirmed, along with guided headphone direction/distance-tone checks
+  and the audible empty-tracker response.
 - Remaining gameplay accessibility work: raycast sonar, status support for other
   characters, assisted targeting, and route
   guidance to objectives. §3 lists the engine
