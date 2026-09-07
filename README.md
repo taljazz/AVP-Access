@@ -167,8 +167,8 @@ using the game's actual tracker samples, speech and spatial audio. No level or
 profile menu is entered. Headphones make left/right comparisons easier.
 
 Press **A**, **Enter** or **Space** for each example. After the spoken bearing and
-distance, wait for two beeps. **D-pad Down** or **T** repeats the current example;
-**B** or **Escape** ends the test. Pressing next cancels any pending beeps from the
+distance, wait for two beeps. **D-pad Down** or **T** plays the current example's
+beeps immediately, without repeating the speech. **B** or **Escape** ends the test. Pressing next cancels any pending beeps from the
 previous example. Advancing once more after the sixth example closes the test.
 
 The sequence is left at 12 meters, ahead at 12 meters, right at 12 meters, ahead

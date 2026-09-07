@@ -364,9 +364,10 @@ tracker snapshot, announcement and positional-cue functions and uses the retail
 samples through the normal sound manager/OpenAL path. No save/profile is loaded
 or written by the diagnostic. Both Windows and getopt argument paths recognize it.
 
-A/Enter/Space advances, T/D-pad Down repeats, and B/Escape cancels. Each example
-speaks and schedules two beeps after 4.5 and 5.5 seconds; advancing/repeating cancels
-pending old beeps. Left/ahead/right at 12 meters are followed by ahead at 5 and 25
+A/Enter/Space advances and B/Escape cancels. Advancing speaks and schedules two
+beeps after 4.5 and 5.5 seconds. T/D-pad Down replays the current example's beeps
+immediately and one second later, without speaking again. Advancing or replaying
+cancels any old pending beeps. Left/ahead/right at 12 meters are followed by ahead at 5 and 25
 meters, then the same world contact as example 2 with a quarter-turn listener
 rotation. The last example should again be heard to the left and spoken at 9 o'clock.
 
@@ -377,10 +378,15 @@ sound handle is reported as playback failure. The trace reports visited examples
 and valid playback handles; it never labels those as a listening pass. Window
 close uses the engine's existing immediate exit path.
 
-The full Windows build passed. The installed actual-module fixture passed 298
+The full Windows build passed. The installed actual-module fixture passed 355
 checks covering all examples, timing, controls, cancellation, unavailable audio,
 playback failure and state cleanup. The executable help lists the new option.
-User listening confirmation is pending. Run `tests\tracker\run_listening_tests.bat` for
+In the first headphone trial, the user heard speech but reported no beeps. The
+trace contains advances and repeats, with no playback calls before the user closed
+the window. Repeating originally restarted the 4.5-second delay. Replay now starts
+a beep immediately to avoid that delay and make audio diagnosis direct. The immediate replay regression checks pass;
+user listening confirmation remains pending.
+Run `tests\tracker\run_listening_tests.bat` for
 the diagnostic controls/timing checks and `tools\run.bat -w --padtrace --trackertest`
 for the real listening test. Actual gameplay encounters and tracker lifecycle
 transitions remain separate live checks listed in section 8.

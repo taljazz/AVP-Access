@@ -36,7 +36,7 @@ static void ExplainTest(void)
     AccSpeech_Say("Tracker listening test. Six simulated contacts. "
         "Press A or Enter for the next example. "
         "Each example speaks, then beeps twice after a short pause. "
-        "D-pad Down or T repeats. B or Escape finishes.", 1);
+        "D-pad Down or T plays the beeps immediately. B or Escape finishes.", 1);
 }
 
 static void StopTestCue(int *handle)
@@ -98,7 +98,7 @@ int AccTracker_RunListeningTest(void)
             }
             if (example < 0) {
                 ExplainTest();
-            } else {
+            } else if (advance) {
                 EULER facing = {0, Examples[example].yaw, 0};
                 ACC_TRACKER_CONTACT contact;
                 contact.x = Examples[example].position.vx;
@@ -111,12 +111,19 @@ int AccTracker_RunListeningTest(void)
                 AccTracker_Announce(&view.VDB_World, facing.EulerY);
                 nextBeep = SDL_GetTicks() + 4500;
                 remainingBeeps = 2;
+            } else {
+                /* Replaying sound should not keep postponing it behind speech. */
+                nextBeep = SDL_GetTicks();
+                remainingBeeps = 2;
             }
         }
         SoundSys_Management();
         now = SDL_GetTicks();
         if (remainingBeeps && now >= nextBeep) {
             StopTestCue(&handle);
+            fprintf(stderr, "ACCTRACKER TEST: playback requested example=%d beep=%d\n",
+                example + 1, 3 - remainingBeeps);
+            fflush(stderr);
             AccTracker_PlayContact(Examples[example].tone, &Examples[example].position,
                 30000, &handle, VOLUME_MAX);
             if (handle == SOUND_NOACTIVEINDEX) {

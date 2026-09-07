@@ -30,6 +30,7 @@ static VIEWDESCRIPTORBLOCK saved_view;
 static ACC_TRACKER_CONTACT published;
 static int event_count, next_event, cue_count, report_count, announcements;
 static int contact_count, published_range, reset_count, stop_count, management_count;
+static int publication_count;
 static int sound_on, current_yaw, checks, failures, cancelled, play_after_cancel;
 static int invalid_listener, invalid_species, invalid_time, fail_playback;
 static int *live_handle;
@@ -106,6 +107,7 @@ int AccSpeech_IsAvailable(void) { return 1; }
 
 void AccTracker_SetContacts(const ACC_TRACKER_CONTACT *contacts, int count, int range)
 {
+    ++publication_count;
     check(count == 1 && contacts != NULL, "one explicitly simulated contact is published");
     if (contacts) published = contacts[0];
     contact_count = count;
@@ -159,6 +161,7 @@ static void fixture(void)
     ticks=live_until=0; live_handle=NULL; sound_on=1;
     event_count=next_event=cue_count=report_count=announcements=0;
     contact_count=published_range=reset_count=stop_count=management_count=0;
+    publication_count=0;
     current_yaw=cancelled=play_after_cancel=0;
     invalid_listener=invalid_species=invalid_time=fail_playback=0;
     last_speech[0]=0;
@@ -210,10 +213,46 @@ static void timing(void)
 
 static void repeat(void)
 {
+    int i;
     fixture(); input(100,KEY_CR); input(6000,KEY_T); input(12000,KEY_JOYSTICK_BUTTON_14); input(18000,KEY_ESCAPE);
     check(AccTracker_RunListeningTest()==0,"both repeat shortcuts complete");
-    check(report_count==3 && cue_count==6,"repeat replays same contact speech and two beeps");
-    if (report_count==3) check(reports[0].x==reports[1].x && reports[1].x==reports[2].x && reports[2].z==0,"repeat never advances stage");
+    check(report_count==1 && publication_count==1 && announcements==1,
+          "repeat does not restart speech or republish the simulated contact");
+    check(cue_count==6,"both repeat shortcuts replay two beeps after the original pair");
+    if(cue_count==6) {
+        check(cues[2].time>=6000 && cues[2].time<6016,"T repeat plays its first beep immediately");
+        check(cues[4].time>=12000 && cues[4].time<12016,"D-pad Down repeat plays its first beep immediately");
+        for(i=2;i<=4;i+=2)
+            check(cues[i+1].time-cues[i].time>=1000 && cues[i+1].time-cues[i].time<1016,
+                  "each repeated pair has its second beep one second later");
+        for(i=0;i<6;++i)
+            check(cues[i].id==SID_TRACKER_WHEEP && cues[i].x==-12000 && cues[i].z==0 && cues[i].yaw==0,
+                  "repeat keeps the current example location, heading and tone");
+    }
+    restored();
+
+    fixture(); input(100,KEY_CR);
+    for(i=0;i<4;++i) input(200+(Uint64)i*100,KEY_JOYSTICK_BUTTON_14);
+    input(2500,KEY_ESCAPE);
+    check(AccTracker_RunListeningTest()==0,"rapid D-pad repeats complete");
+    check(report_count==1 && publication_count==1 && announcements==1,
+          "rapid repeats retain the first contact and do not interrupt with more speech");
+    check(cue_count==5,"each rapid repeat plays immediately, then the last pair finishes");
+    if(cue_count==5) {
+        for(i=0;i<4;++i)
+            check(cues[i].time>=200+(Uint64)i*100 && cues[i].time<216+(Uint64)i*100,
+                  "repeated D-pad presses cannot postpone every beep");
+        check(cues[4].time-cues[3].time>=1000 && cues[4].time-cues[3].time<1016,
+              "last rapid repeat retains its delayed second beep");
+    }
+    check(stop_count>=3,"rapid repeats stop the earlier live cue before replaying");
+    restored();
+
+    fixture(); input(100,KEY_JOYSTICK_BUTTON_1); input(200,KEY_JOYSTICK_BUTTON_1);
+    events[1].key2=KEY_JOYSTICK_BUTTON_14; input(400,KEY_ESCAPE);
+    check(AccTracker_RunListeningTest()==0,"simultaneous advance and repeat can be cancelled");
+    check(report_count==2 && publication_count==2 && cue_count==0,
+          "advance wins simultaneous repeat and keeps its speech delay");
     restored();
 }
 
