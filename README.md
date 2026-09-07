@@ -71,7 +71,9 @@ press is needed for the tracker.
 **Music and cutscenes.** Neither was implemented in the port. Both are restored by
 decoding the Bink and Smacker files the retail release ships, via FFmpeg: the
 soundtrack, the fullscreen intros and outros with picture and sound, and the in-game
-wall-monitor briefings.
+wall-monitor briefings. Normal startup plays the original Fox Interactive and
+Rebellion logo movie, followed by the title sequence and the dedicated
+`fmvs/introsound.smk` menu theme. `--skip-intro` goes straight to the menus.
 
 **Gamepad support.** SDL3's mapped gamepad layer provides Xbox menu navigation
 and twin-stick movement/look. Controllers can connect or reconnect after startup.
@@ -82,7 +84,10 @@ Marine has a default controller layout in the secondary bindings:
 
 | Control | Marine action |
 | --- | --- |
-| Left stick / right stick | Move and strafe / look |
+| Left stick up / down | Move forward / backward |
+| Left stick left / right | Strafe left / right |
+| Right stick left / right | Look left / right |
+| Right stick up / down | Look up / down (with normal vertical setting) |
 | RT / LT | Primary / secondary fire |
 | A / B / X | Jump / crouch / interact |
 | Y / LB | Next / previous weapon |
@@ -154,7 +159,8 @@ Flags added for testing without having to play to the content in question:
 | `--padtest [secs]` | Report what SDL sees from the controller |
 | `--trackertest` | Guided speech and directional tracker listening examples |
 | `--padtrace` | Trace how pad state reaches the engine |
-| `-intro` | Re-enable the startup logo sequence |
+| `--intro` / `-intro` | Play the startup logo sequence (default) |
+| `--skip-intro` | Skip the startup logos and title sequence |
 | `-w` / `-f` | Windowed / fullscreen |
 
 Note that MSVC has no `getopt_long`, so the Windows build previously ignored *every*

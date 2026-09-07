@@ -6,6 +6,7 @@ extern "C"
 	//#include "smacker.h"
 	#include "avp_menus.h"
     #include "avp_intro.h"
+	#include "access/acc_media.h"
 	extern int NormalFrameTime;
 	extern unsigned char GotAnyKey;
 	extern int DebouncedGotAnyKey;
@@ -27,33 +28,27 @@ extern void PlayBinkedFMV(char *filenamePtr);
 extern void DrawMainMenusBackdrop(void);
 extern void FadedScreen(int alpha);
 
-/* AVP Access ------------------------------------------------------------------
-  These three were empty bodies, so the front end had no music whatsoever. The
-  soundtrack is now decoded from the Bink files the GOG/Steam release ships, so
-  the menus can have their theme back. Track 1 is the main AvP theme
-  ("01 Marine Music 1"); it repeats for as long as the menus are up.
-  ---------------------------------------------------------------------------*/
-extern int  CDDA_IsOn(void);
-extern int  CDDA_IsPlaying(void);
-extern void CDDA_Play(int CDDATrack);
-extern void CDDA_Stop(void);
-
-#define ACC_MENU_MUSIC_TRACK 1
+/* The original title/menu theme lives in introsound.smk. The numbered Bink
+   tracks belong to gameplay, and remain selected by cdtrackselection.cpp. */
+extern int CDDA_IsOn(void);
 
 void StartMenuMusic(void)
 {
-	if (CDDA_IsOn()) CDDA_Play(ACC_MENU_MUSIC_TRACK);
+	if (CDDA_IsOn()) AccMedia_PlayMenuMusic();
 }
 
 void PlayMenuMusic(void)
 {
-	/* Called once per menu frame; restart the theme whenever it runs out. */
-	if (CDDA_IsOn() && !CDDA_IsPlaying()) CDDA_Play(ACC_MENU_MUSIC_TRACK);
+	/* The procedural title screens do not call SoundSys_Management(). Refill
+	   here before checking playback, so an empty queue resumes instead of
+	   repeatedly restarting the theme's opening second. */
+	AccMedia_Update();
+	if (CDDA_IsOn() && !AccMedia_TrackIsPlaying()) AccMedia_PlayMenuMusic();
 }
 
 void EndMenuMusic(void)
 {
-	CDDA_Stop();
+	AccMedia_StopTrack();
 }
 
 void WeWantAnIntro(void)

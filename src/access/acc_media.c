@@ -87,6 +87,7 @@ static ACC_STREAM Music;
 static ACC_STREAM Plot;      /* in-game wall-monitor briefings */
 static int MediaReady;
 static int MediaFailed;
+static int MenuMusicFailed;  /* avoid retrying a missing/bad theme every frame */
 static int MusicVolume = 127;   /* game scale, 0..127 */
 
 /* The game's 640x480 RGB565 software surface, and the routine that puts it on
@@ -640,6 +641,7 @@ void AccMedia_Shutdown(void)
 	}
 
 	MediaReady = 0;
+	MenuMusicFailed = 0;
 }
 
 int AccMedia_IsAvailable(void) { return MediaReady; }
@@ -672,6 +674,27 @@ static int FindTrackFile(int track, char *out, size_t cap)
 
 	CloseGameDirectory(dir);
 	return found;
+}
+
+/* The title/menu theme is separate from the numbered level soundtrack. Share
+   the music source so leaving the menus stops it before level music begins. */
+int AccMedia_PlayMenuMusic(void)
+{
+	static const char path[] = "fmvs/introsound.smk";
+
+	if (MenuMusicFailed || !AccMedia_Init()) return 0;
+
+	/* This Smacker file contains a dummy picture; only decode its audio. */
+	if (!StreamOpen(&Music, path, 0)) {
+		MenuMusicFailed = 1;
+		fprintf(stderr, "AVP Access: could not decode menu music %s\n", path);
+		return 0;
+	}
+
+	StreamApplyVolume(&Music);
+	StreamPump(&Music);
+	fprintf(stderr, "AVP Access: menu music %s\n", path);
+	return 1;
 }
 
 int AccMedia_PlayTrack(int track)
@@ -966,6 +989,7 @@ void AccMedia_PlayMovie(const char *filename)
 int  AccMedia_Init(void)          { return 0; }
 void AccMedia_Shutdown(void)      { }
 int  AccMedia_IsAvailable(void)   { return 0; }
+int  AccMedia_PlayMenuMusic(void) { return 0; }
 int  AccMedia_PlayTrack(int track){ (void)track; return 0; }
 void AccMedia_StopTrack(void)     { }
 int  AccMedia_TrackIsPlaying(void){ return 0; }

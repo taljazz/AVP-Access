@@ -5,7 +5,8 @@
   were empty stubs, so the game shipped with no music and no cutscenes. The GOG
   and Steam releases store the soundtrack as Bink files in FMVs/ ("01 Marine
   Music 1.bik" .. "15 Earthbound.bik", matching tracks 1-15 in CD Tracks.txt),
-  and the cutscenes as .bik/.smk alongside them.
+  and the cutscenes as .bik/.smk alongside them. The separate title/menu theme
+  is fmvs/introsound.smk.
 
   FFmpeg decodes both formats, so one streaming decoder serves both: the music
   system plays a track, and a cutscene plays once with picture and sound.
@@ -31,6 +32,10 @@ int  AccMedia_IsAvailable(void);
 /* track is a CD track number (1-based) as used by CD Tracks.txt. Returns 1 if
    playback started. */
 int  AccMedia_PlayTrack(int track);
+
+/* Starts the original title/menu theme on the same music source. A missing or
+   undecodable theme is reported once per media session. */
+int  AccMedia_PlayMenuMusic(void);
 void AccMedia_StopTrack(void);
 int  AccMedia_TrackIsPlaying(void);
 
@@ -38,7 +43,7 @@ int  AccMedia_TrackIsPlaying(void);
 void AccMedia_SetVolume(int volume);
 
 /* Refills the streaming buffers. Must be called regularly -- it is hooked into
-   SoundSys_Management(), which every game and menu loop already calls. */
+   SoundSys_Management() and the title/menu music update both pump it. */
 void AccMedia_Update(void);
 
 /* --- cutscenes --------------------------------------------------------- */

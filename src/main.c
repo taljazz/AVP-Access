@@ -128,10 +128,10 @@ int WantSound = 1;
 static int WantCDRom = 1;
 
 /* AVP Access: --movie plays one FMV and exits, so cutscene playback can be
-   checked without finishing a campaign; -intro re-enables the startup sequence
-   the way winmain.c has always allowed. */
+   checked without finishing a campaign. Normal launches play the original
+   startup sequence; --skip-intro bypasses it for repeat testing. */
 static const char *TestMoviePath = NULL;
-static int WantIntroSequence = 0;
+static int WantIntroSequence = 1;
 static int TestPlotMessage = -1;
 static int TestPadSeconds = 0;
 static int TestTracker = 0;
@@ -1482,6 +1482,8 @@ char *AvpCDPath = 0;
 #if !defined(_MSC_VER)
 static const struct option getopt_long_options[] = {
 { "trackertest", 0, NULL, 256 },
+{ "intro", 0, NULL, 257 },
+{ "skip-intro", 0, NULL, 258 },
 { "help",	0,	NULL,	'h' },
 { "version",	0,	NULL,	'v' },
 { "fullscreen",	0,	NULL,	'f' },
@@ -1505,6 +1507,8 @@ static const char *usage_string =
 "Aliens vs Predator Linux - http://www.icculus.org/avp/\n"
 "Based on Rebellion Developments AvP Gold source\n"
 "      [--trackertest]         Guided tracker listening examples\n"
+"      [--intro]               Play startup logos and title (default)\n"
+"      [--skip-intro]          Skip startup logos and title\n"
 "      [-h | --help]           Display this help message\n"
 "      [-v | --version]        Display the game version\n"
 "      [-f | --fullscreen]     Run the game fullscreen\n"
@@ -1526,6 +1530,12 @@ int main(int argc, char *argv[])
 		switch(c) {
 			case 256:
 				TestTracker = 1;
+				break;
+			case 257:
+				WantIntroSequence = 1;
+				break;
+			case 258:
+				WantIntroSequence = 0;
 				break;
 			case 'h':
 				printf("%s", usage_string);
@@ -1599,6 +1609,8 @@ int main(int argc, char *argv[])
 				opengl_library = argv[++i];
 			} else if (!strcmp(a, "-intro") || !strcmp(a, "--intro")) {
 				WantIntroSequence = 1;
+			} else if (!strcmp(a, "--skip-intro")) {
+				WantIntroSequence = 0;
 			} else if (!strcmp(a, "--trackertest")) {
 				TestTracker = 1;
 			} else if (!strcmp(a, "--padtrace")) {
