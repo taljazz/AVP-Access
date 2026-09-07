@@ -4,6 +4,10 @@
 #include <ctype.h>
 
 #include <SDL3/SDL.h>
+
+#include "acc_speech.h"
+#include "access/acc_media.h"
+#include "access/acc_pad.h"
 #include "oglfunc.h"
 
 #if !defined(_MSC_VER)
@@ -39,6 +43,7 @@
 #include "player.h"
 #include "mempool.h"
 #include "avpview.h"
+#include "usr_io.h"
 #include "consbind.hpp"
 #include "progress_bar.h"
 #include "scrshot.hpp"
@@ -114,8 +119,21 @@ static int WantMouseGrab = 1;
 
 // Additional configuration
 int WantSound = 1;
-static int WantCDRom = 0;
-static int WantJoystick = 0;
+/* AVP Access: was 0, and the only switch (-c) also sets 0, so CDDA_Start() could
+   never run and the music system was unreachable. Now on by default, with -c
+   still turning it off as the flag name promises. */
+static int WantCDRom = 1;
+
+/* AVP Access: --movie plays one FMV and exits, so cutscene playback can be
+   checked without finishing a campaign; -intro re-enables the startup sequence
+   the way winmain.c has always allowed. */
+static const char *TestMoviePath = NULL;
+static int WantIntroSequence = 0;
+static int TestPlotMessage = -1;
+static int TestPadSeconds = 0;
+/* AVP Access: was 0 while the only switch (-j) also sets 0, so a controller
+   could never be enabled at all. On by default; -j still turns it off. */
+static int WantJoystick = 1;
 
 static GLuint FullscreenTexture;
 static GLsizei FullscreenTextureWidth;
@@ -145,6 +163,14 @@ void DirectReadMouse()
 
 void ReadJoysticks()
 {
+	/* AVP Access: a mapped gamepad supersedes the raw joystick path entirely --
+	   it writes the same JOYINFOEX the engine reads, but from a standardised
+	   layout. */
+	if (AccPad_IsPresent()) {
+		AccPad_ReadAxes();
+		return;
+	}
+
 	int axes, balls, hats;
 	Uint8 hat;
 	
@@ -511,6 +537,33 @@ int InitSDL()
 	LoadDeviceAndVideoModePreferences();
 
 	if (WantJoystick) {
+		/* AVP Access: prefer SDL's gamepad layer, which applies a per-device
+		   mapping so an Xbox pad has a standard layout. Only fall back to a raw
+		   joystick when the device has no mapping. */
+		if (AccPad_Init()) {
+			fprintf(stderr, "AVP Access: gamepad \"%s\"\n", AccPad_Name());
+
+			JoystickCaps.wCaps = 0;
+
+			JoystickData.dwXpos = 32768;
+			JoystickData.dwYpos = 32768;
+			JoystickData.dwRpos = 32768;
+			JoystickData.dwUpos = 32768;
+			JoystickData.dwVpos = 32768;
+			JoystickData.dwPOV = (DWORD) -1;
+
+			/* Twin-stick defaults: left stick moves and strafes, right stick
+			   turns and looks. The stock settings sidestep with nothing and
+			   leave the right stick dead, which is unusable on a pad. */
+			JoystickControlMethods.JoystickEnabled = 1;
+			JoystickControlMethods.JoystickVAxisIsMovement = 1;
+			JoystickControlMethods.JoystickHAxisIsTurning = 0;
+			JoystickControlMethods.JoystickTrackerBallEnabled = 1;
+			DefaultJoystickControlMethods.JoystickEnabled = 1;
+			DefaultJoystickControlMethods.JoystickVAxisIsMovement = 1;
+			DefaultJoystickControlMethods.JoystickHAxisIsTurning = 0;
+			DefaultJoystickControlMethods.JoystickTrackerBallEnabled = 1;
+		} else {
 		SDL_InitSubSystem(SDL_INIT_JOYSTICK);
 			
 		joy = SDL_OpenJoystick(0);
@@ -525,6 +578,7 @@ int InitSDL()
 			JoystickData.dwUpos = 0;
 			JoystickData.dwVpos = 0;
 			JoystickData.dwPOV = (DWORD) -1;
+		}
 		}
 	}
 	
@@ -1206,6 +1260,13 @@ void CheckForWindowsMessages()
 	}
 
 	if (GotJoystick) {
+		/* AVP Access: with a mapped gamepad the buttons come from a fixed Xbox
+		   layout instead of raw, device-specific numbering -- and the pad also
+		   publishes cursor keys while a menu is up, so the front end can be
+		   driven without binding anything first. */
+		if (AccPad_IsPresent()) {
+			AccPad_ReadButtons();
+		} else {
 		float numbuttons;
 		int x;
 		
@@ -1224,6 +1285,7 @@ void CheckForWindowsMessages()
 			} else {
 				KeyboardInput[KEY_JOYSTICK_BUTTON_1+x] = 0;
 			}	
+		}
 		}
 	}
 
@@ -1462,8 +1524,67 @@ int main(int argc, char *argv[])
 				exit(EXIT_FAILURE);	
 		}
 	}
+#else
+	/* AVP Access: MSVC has no getopt_long, so the Windows build previously
+	   ignored every command-line switch and was locked to fullscreen with no
+	   way to set a data path. Parse the same options by hand. */
+	{
+		extern int DebuggingCommandsActive;
+		int i;
+
+		for (i = 1; i < argc; i++) {
+			const char *a = argv[i];
+
+			if (a[0] != '-') continue;
+
+			if (!strcmp(a, "-h") || !strcmp(a, "--help")) {
+				printf("%s", usage_string);
+				exit(EXIT_SUCCESS);
+			} else if (!strcmp(a, "-v") || !strcmp(a, "--version")) {
+				printf("%s", AvPVersionString);
+				exit(EXIT_SUCCESS);
+			} else if (!strcmp(a, "-f") || !strcmp(a, "--fullscreen")) {
+				WantFullscreen = 1;
+			} else if (!strcmp(a, "-w") || !strcmp(a, "--windowed")) {
+				WantFullscreen = 0;
+			} else if (!strcmp(a, "-s") || !strcmp(a, "--nosound")) {
+				WantSound = 0;
+			} else if (!strcmp(a, "-c") || !strcmp(a, "--nocdrom")) {
+				WantCDRom = 0;
+			} else if (!strcmp(a, "-j") || !strcmp(a, "--nojoy")) {
+				WantJoystick = 0;
+			} else if (!strcmp(a, "-d") || !strcmp(a, "--debug")) {
+				DebuggingCommandsActive = 1;
+			} else if ((!strcmp(a, "-g") || !strcmp(a, "--withgl")) && i + 1 < argc) {
+				opengl_library = argv[++i];
+			} else if (!strcmp(a, "-intro") || !strcmp(a, "--intro")) {
+				WantIntroSequence = 1;
+			} else if (!strcmp(a, "--padtrace")) {
+				AccPadTrace = 1;
+			} else if (!strcmp(a, "--padtest")) {
+				TestPadSeconds = (i + 1 < argc && argv[i + 1][0] != '-') ? atoi(argv[++i]) : 20;
+			} else if (!strcmp(a, "--plotmsg") && i + 1 < argc) {
+				TestPlotMessage = atoi(argv[++i]);
+			} else if (!strcmp(a, "--movie") && i + 1 < argc) {
+				TestMoviePath = argv[++i];
+			} else if ((!strcmp(a, "-p") || !strcmp(a, "--datapath")) && i + 1 < argc) {
+				gamedatapath = argv[++i];
+			} else {
+				printf("%s", usage_string);
+				exit(EXIT_FAILURE);
+			}
+		}
+	}
 #endif
 	InitGameDirectories(argv[0], gamedatapath);
+
+	/* AVP Access: bring speech up before anything can need announcing. */
+	if (AccSpeech_Init()) {
+		fprintf(stderr, "AVP Access: speech via %s\n", AccSpeech_Backend());
+		AccSpeech_Say("Aliens versus Predator, accessible edition. Loading.", 1);
+	} else {
+		fprintf(stderr, "AVP Access: no speech (Tolk.dll missing, or no screen reader and no SAPI)\n");
+	}
 	
 	if (InitSDL() == -1) {
 		fprintf(stderr, "Could not find a sutable resolution!\n");
@@ -1523,6 +1644,74 @@ int main(int argc, char *argv[])
 	AvP.PlayerType = I_Marine;
 	SetLevelToLoad(AVP_ENVIRONMENT_INVASION);
 #endif
+
+	/* AVP Access: --padtest reports what SDL sees from the controller, so a pad
+	   that is detected but does nothing can be told apart from one the engine is
+	   simply not reading. */
+	if (TestPadSeconds > 0) {
+		AccPad_SelfTest(TestPadSeconds);
+		exit(EXIT_SUCCESS);
+	}
+
+	/* AVP Access: --plotmsg decodes one wall-monitor briefing and reports what
+	   came out, so the in-game FMV path can be checked without having to reach
+	   the mission trigger that fires it. */
+	if (TestPlotMessage >= 0) {
+		static unsigned char idx[128 * 96];
+		static unsigned char prev[128 * 96];
+		unsigned char pal[256][3];
+		int distinct = 0, guard = 0, lastLit = 0, colours = 0;
+
+		if (!AccMedia_PlotStart(TestPlotMessage)) {
+			fprintf(stderr, "AVP Access: plot message %d not available\n", TestPlotMessage);
+			exit(EXIT_FAILURE);
+		}
+
+		while (AccMedia_PlotIsPlaying() && guard++ < 20000) {
+			AccMedia_Update();
+
+			if (AccMedia_PlotFrame(idx, 128, 96, pal)) {
+				if (memcmp(idx, prev, sizeof(idx)) != 0) {
+					int k, lit = 0;
+					for (k = 0; k < 128 * 96; k++)
+						if (idx[k]) lit++;
+					lastLit = lit;
+					memcpy(prev, idx, sizeof(idx));
+					distinct++;
+				}
+			}
+			SDL_Delay(5);
+		}
+
+		{
+			int c;
+			for (c = 0; c < 256; c++)
+				if (pal[c][0] || pal[c][1] || pal[c][2]) colours++;
+		}
+
+		fprintf(stderr,
+		        "AVP Access: message %d -> %d distinct frames, %d/%d lit pixels in the last, %d palette colours, %d polls\n",
+		        TestPlotMessage, distinct, lastLit, 128 * 96, colours, guard);
+		exit(EXIT_SUCCESS);
+	}
+
+	/* AVP Access: --movie plays a single FMV and exits, so cutscene playback can
+	   be checked without playing a campaign through to its intro or ending. */
+	if (TestMoviePath) {
+		extern void SelectMenuDisplayMode(void);
+		extern void PlayBinkedFMV(char *filenamePtr);
+
+		/* Bring the menu display up first, or the FMV plays into a
+		   viewport that has not been sized yet. */
+		SelectMenuDisplayMode();
+		PlayBinkedFMV((char *)TestMoviePath);
+		exit(EXIT_SUCCESS);
+	}
+
+	if (WantIntroSequence) {
+		extern void WeWantAnIntro(void);
+		WeWantAnIntro();
+	}
 
 #if !(ALIEN_DEMO|PREDATOR_DEMO|MARINE_DEMO)	
 while (AvP_MainMenus())

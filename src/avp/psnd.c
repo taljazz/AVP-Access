@@ -13,6 +13,7 @@
 #include "gamedef.h"
 
 #include "psndplat.h"
+#include "access/acc_media.h"
 #define UseLocalAssert Yes
 #include "ourasert.h"
 #include "db.h"
@@ -100,12 +101,15 @@ void SoundSys_End(void)
 	SoundSys_SwitchOff();
 	SoundInitialised = 0; /* forces call to Soundsys_Start to re-start sound system */	
 }
-
 void SoundSys_Management(void)
 {
 	int i;
 	int numActive = 0;
 	int num3dUpdates = 0;
+
+	/* AVP Access: keep the music stream fed. Every game and menu loop already
+	   calls this once a frame, which makes it the natural pump point. */
+	AccMedia_Update();
 
 	if(!SoundSwitchedOn) return;
 

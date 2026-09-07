@@ -159,55 +159,78 @@ void CDDA_SwitchOn()
 
 #else
 
-// What's a CD?
+/* AVP Access ------------------------------------------------------------------
+  The original game streamed its soundtrack from CD audio. The GOG and Steam
+  releases ship those same 15 tracks as Bink files in FMVs/, so "CD playback"
+  is now decoding one of those and streaming it to OpenAL.
+
+  Deliberately no looping: the game's own chooser in cdtrackselection.cpp polls
+  CDDA_IsPlaying() and moves to the next track for the level when the current
+  one ends, which is how track rotation is supposed to work.
+  ---------------------------------------------------------------------------*/
+
+#include "access/acc_media.h"
 
 void CheckCDVolume()
 {
+	AccMedia_SetVolume(CDPlayerVolume);
 }
-
-/* ** */
 
 void CDDA_Start()
 {
+	AccMedia_Init();
 }
 
 void CDDA_End()
 {
+	AccMedia_StopTrack();
 }
 
 void CDDA_ChangeVolume(int volume)
 {
+	CDPlayerVolume = volume;
+	AccMedia_SetVolume(volume);
 }
 
 int CDDA_CheckNumberOfTracks()
 {
-	return 0;
+	/* CD Tracks.txt assigns tracks 1-15; the files ship with the game. */
+	return AccMedia_IsAvailable() ? 15 : 0;
 }
 
 int CDDA_IsOn()
 {
-	return 0;
+	/* Gates CheckCDAndChooseTrackIfNeeded(); returning 0 here is what kept the
+	   game silent even once the decoder existed. */
+	/* Self-initialising: the decoder needs the OpenAL context, which is not up
+	   yet the first time this is asked. Returning a flat 0 here would mean the
+	   music system never got a second chance. */
+	return AccMedia_Init();
 }
 
 int CDDA_IsPlaying()
 {
-	return 0;
+	return AccMedia_TrackIsPlaying();
 }
 
 void CDDA_Play(int CDDATrack)
 {
+	AccMedia_PlayTrack(CDDATrack);
 }
 
 void CDDA_PlayLoop(int CDDATrack)
 {
+	AccMedia_PlayTrack(CDDATrack);
 }
 
 void CDDA_Stop()
 {
+	AccMedia_StopTrack();
 }
 
 void CDDA_SwitchOn()
 {
+	AccMedia_Init();
 }
 
 #endif

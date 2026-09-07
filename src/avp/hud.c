@@ -23,6 +23,7 @@
 #include "weapons.h"
 
 #include "psnd.h"
+#include "acc_speech.h"
 #include "psndplat.h"
 #include "dynamics.h"
 
@@ -2030,6 +2031,13 @@ int Fast2dMagnitude(int dx, int dy)
 
 extern void NewOnScreenMessage(unsigned char *messagePtr)
 {
+	/* AVP Access: every in-game message -- mission objectives, pickups, plot
+	   text, weapon and multiplayer chatter -- funnels through here from ~179
+	   call sites, so this one hook speaks all of them. Queued rather than
+	   interrupting: several often arrive at once and cutting each other off
+	   would lose the earlier ones. */
+	AccSpeech_Say((const char *)messagePtr, 0);
+
 	GADGET_NewOnScreenMessage( messagePtr );	
 }
 

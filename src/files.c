@@ -436,7 +436,14 @@ void *OpenGameDirectory(const char *dirname, const char *pattern, int type)
 			globaldir = opendir(globaldirname);
 		
 			if (globaldir == NULL)
+			{
+				/* AVP Access: this freed the name but left the pointer live; it is
+				   then stored in gd and freed a second time by CloseGameDirectory,
+				   corrupting the heap. Any scan of a directory that exists in one
+				   root but not the other hits it. */
 				free(globaldirname);
+				globaldirname = NULL;
+			}
 		}		
 	}
 	
@@ -455,7 +462,11 @@ void *OpenGameDirectory(const char *dirname, const char *pattern, int type)
 			localdir = opendir(localdirname);
 		
 			if (localdir == NULL)
+			{
+				/* AVP Access: same double free as the global case above. */
 				free(localdirname);
+				localdirname = NULL;
+			}
 		}
 	}
 	
@@ -501,7 +512,10 @@ GameDirectoryFile *ScanGameDirectory(void *dir)
 	if (directory->globaldir) {
 		while ((file = readdir(directory->globaldir)) != NULL) {
 #ifdef _WIN32
-			if (PathMatchSpec(directory->pat, file->d_name) == 0) {
+			/* AVP Access: PathMatchSpecA takes (filename, pattern) and returns TRUE on
+			   a match. This passed them swapped and tested for zero, so the Windows
+			   build listed precisely the files that did NOT match the pattern. */
+			if (PathMatchSpec(file->d_name, directory->pat)) {
 #else
 			if (fnmatch(directory->pat, file->d_name, FNM_PATHNAME) == 0) {
 #endif
@@ -524,7 +538,10 @@ GameDirectoryFile *ScanGameDirectory(void *dir)
 	if (directory->localdir) {
 		while ((file = readdir(directory->localdir)) != NULL) {
 #ifdef _WIN32
-			if (PathMatchSpec(directory->pat, file->d_name) == 0) {
+			/* AVP Access: PathMatchSpecA takes (filename, pattern) and returns TRUE on
+			   a match. This passed them swapped and tested for zero, so the Windows
+			   build listed precisely the files that did NOT match the pattern. */
+			if (PathMatchSpec(file->d_name, directory->pat)) {
 #else
 			if (fnmatch(directory->pat, file->d_name, FNM_PATHNAME) == 0) {
 #endif
@@ -566,7 +583,9 @@ int CloseGameDirectory(void *dir)
 			closedir(directory->localdir);
 		if (directory->globaldir)
 			closedir(directory->globaldir);
-			
+
+		/* AVP Access: the handle itself was never released. */
+		free(directory);
 		return 0;
 	}
 	return -1;

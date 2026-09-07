@@ -1712,3 +1712,29 @@ void LoadDefaultPrimaryConfigs(void)
 
 	fclose(file);
 }
+
+/* AVP Access ------------------------------------------------------------------
+  Re-assert the control settings a gamepad needs. Called every frame from
+  acc_pad.c rather than once at startup, because loading a user profile does
+  `JoystickControlMethods = UserProfilePtr->JoystickControlMethods` -- so any
+  profile saved before controller support existed silently disables the right
+  stick and puts turning back on the left one.
+
+  Lives here because JOYSTICK_CONTROL_METHODS is defined in this translation
+  unit's headers, which pull in types the standalone pad module does not have.
+  ---------------------------------------------------------------------------*/
+void AccPad_ApplyControlMethods(void)
+{
+	JoystickControlMethods.JoystickEnabled            = 1;
+	JoystickControlMethods.JoystickVAxisIsMovement    = 1;
+	JoystickControlMethods.JoystickHAxisIsTurning     = 0;   /* left stick strafes */
+	JoystickControlMethods.JoystickTrackerBallEnabled = 1;   /* right stick looks  */
+
+	if (JoystickControlMethods.JoystickTrackerBallHorizontalSensitivity == 0)
+		JoystickControlMethods.JoystickTrackerBallHorizontalSensitivity =
+			DEFAULT_TRACKERBALL_HORIZONTAL_SENSITIVITY;
+
+	if (JoystickControlMethods.JoystickTrackerBallVerticalSensitivity == 0)
+		JoystickControlMethods.JoystickTrackerBallVerticalSensitivity =
+			DEFAULT_TRACKERBALL_VERTICAL_SENSITIVITY;
+}

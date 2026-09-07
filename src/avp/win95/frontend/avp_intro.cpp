@@ -27,16 +27,33 @@ extern void PlayBinkedFMV(char *filenamePtr);
 extern void DrawMainMenusBackdrop(void);
 extern void FadedScreen(int alpha);
 
+/* AVP Access ------------------------------------------------------------------
+  These three were empty bodies, so the front end had no music whatsoever. The
+  soundtrack is now decoded from the Bink files the GOG/Steam release ships, so
+  the menus can have their theme back. Track 1 is the main AvP theme
+  ("01 Marine Music 1"); it repeats for as long as the menus are up.
+  ---------------------------------------------------------------------------*/
+extern int  CDDA_IsOn(void);
+extern int  CDDA_IsPlaying(void);
+extern void CDDA_Play(int CDDATrack);
+extern void CDDA_Stop(void);
+
+#define ACC_MENU_MUSIC_TRACK 1
+
 void StartMenuMusic(void)
 {
+	if (CDDA_IsOn()) CDDA_Play(ACC_MENU_MUSIC_TRACK);
 }
 
 void PlayMenuMusic(void)
 {
+	/* Called once per menu frame; restart the theme whenever it runs out. */
+	if (CDDA_IsOn() && !CDDA_IsPlaying()) CDDA_Play(ACC_MENU_MUSIC_TRACK);
 }
 
 void EndMenuMusic(void)
 {
+	CDDA_Stop();
 }
 
 void WeWantAnIntro(void)
@@ -62,7 +79,8 @@ extern void PlayIntroSequence(void)
 	FlipBuffers();
 	ClearScreenToBlack();
 
-	//PlayBinkedFMV("FMVs/logos.bik");
+	/* AVP Access: restored -- the Bink decoder can play this now. */
+	PlayBinkedFMV("FMVs/logos.bik");
 	//PlayFMV("FMVs/rebellion.smk");
 
 	StartMenuMusic();

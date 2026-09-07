@@ -24,6 +24,12 @@ typedef struct
 	int GreenScale;
 	int BlueScale;
 
+	/* AVP Access: colour table of the plot message currently on this screen.
+	   Cached here because UpdateFMVTexturePalette() runs after the frame is
+	   fetched and would otherwise overwrite it with the static-noise table. */
+	unsigned char PlotPalette[256][3];
+	int PlotPaletteValid;
+
 } FMVTEXTURE;
 
 

@@ -13,6 +13,8 @@
 #include "avp_userprofile.h"
 #include "oglfunc.h" // move this into opengl.c
 
+#include "access/acc_media.h"
+
 #define UseLocalAssert 1
 #include "ourasert.h"
 
@@ -149,7 +151,30 @@ void ReleaseAllFMVTextures(void)
 int NextFMVTextureFrame(FMVTEXTURE *ftPtr, void *bufferPtr)
 {
 	int w = 128;
-	
+
+	/* AVP Access: a screen showing a plot message pulls its picture from the
+	   decoder; everything else keeps the original TV-static placeholder. */
+	if (ftPtr->IsTriggeredPlotFMV && ftPtr->MessageNumber)
+	{
+		if (AccMedia_PlotIsPlaying())
+		{
+			if (AccMedia_PlotFrame((unsigned char *)bufferPtr, 128, 96,
+			                       ftPtr->PlotPalette))
+			{
+				ftPtr->PlotPaletteValid = 1;
+				FindLightingValuesFromTriggeredFMV((unsigned char*)bufferPtr,ftPtr);
+				return 1;
+			}
+		}
+		else
+		{
+			/* Message over: fall back to static and redraw it once. */
+			ftPtr->MessageNumber = 0;
+			ftPtr->PlotPaletteValid = 0;
+			ftPtr->StaticImageDrawn = 0;
+		}
+	}
+
 	if (!ftPtr->StaticImageDrawn)
 	{
 		int i = w*96/4;
@@ -170,53 +195,52 @@ int NextFMVTextureFrame(FMVTEXTURE *ftPtr, void *bufferPtr)
 
 void UpdateFMVTexturePalette(FMVTEXTURE *ftPtr)
 {
-	//unsigned char *c;
 	int i;
-	//
-	//if (MoviesAreActive && ftPtr->SmackHandle)
-	//{
-	//}
-	//else
+
+	/* AVP Access: use the decoded message's own colour table when one is
+	   playing; the random greyscale below is the static-noise placeholder. */
+	if (ftPtr->PlotPaletteValid)
 	{
-	  	{
-			unsigned int seed = FastRandom();
-			for(i=0;i<256;i++)
-			{   
-				int l = (seed&(seed>>24)&(seed>>16));
-				seed = ((seed*1664525)+1013904223);
-				ftPtr->SrcPalette[i].peRed=l;
-				ftPtr->SrcPalette[i].peGreen=l;
-		   		ftPtr->SrcPalette[i].peBlue=l;
-		 	}	
+		for(i=0;i<256;i++)
+		{
+			ftPtr->SrcPalette[i].peRed   = ftPtr->PlotPalette[i][0];
+			ftPtr->SrcPalette[i].peGreen = ftPtr->PlotPalette[i][1];
+			ftPtr->SrcPalette[i].peBlue  = ftPtr->PlotPalette[i][2];
+		}
+		return;
+	}
+
+	{
+		unsigned int seed = FastRandom();
+		for(i=0;i<256;i++)
+		{
+			int l = (seed&(seed>>24)&(seed>>16));
+			seed = ((seed*1664525)+1013904223);
+			ftPtr->SrcPalette[i].peRed=l;
+			ftPtr->SrcPalette[i].peGreen=l;
+			ftPtr->SrcPalette[i].peBlue=l;
 		}
 	}
 }
 
 extern void StartTriggerPlotFMV(int number)
 {
-	(void) number;
-	
-	//int i = NumberOfFMVTextures;
-	//char buffer[25];
-	//
-	//if (CheatMode_Active != CHEATMODE_NONACTIVE) return;
-	//
-	//sprintf(buffer,"FMVs//message%d.smk",number);
-	//{
-	//	FILE* file=fopen(buffer,"rb");
-	//	if(!file)
-	//	{
-	//		return;
-	//	}
-	//	fclose(file);
-	//}
-	//while(i--)
-	//{
-	//	if (FMVTexture[i].IsTriggeredPlotFMV)
-	//	{
-	//		FMVTexture[i].MessageNumber = number;
-	//	}
-	//}
+	int i = NumberOfFMVTextures;
+
+	/* AVP Access: was an empty stub, so the wall monitors never showed anything
+	   but static and the briefings were never heard. Start the message, then
+	   point every triggered screen at it. */
+	if (!AccMedia_PlotStart(number)) return;
+
+	while(i--)
+	{
+		if (FMVTexture[i].IsTriggeredPlotFMV)
+		{
+			FMVTexture[i].MessageNumber = number;
+			FMVTexture[i].PlotPaletteValid = 0;
+			FMVTexture[i].StaticImageDrawn = 0;
+		}
+	}
 }
 
 extern void StartFMVAtFrame(int number, int frame)
@@ -247,19 +271,18 @@ extern void GetFMVInformation(int *messageNumberPtr, int *frameNumberPtr)
 
 extern void InitialiseTriggeredFMVs(void)
 {
-	//int i = NumberOfFMVTextures;
-	//while(i--)
-	//{
-	//	if (FMVTexture[i].IsTriggeredPlotFMV)
-	//	{
-	//		if(FMVTexture[i].SmackHandle)
-	//		{
-	//			FMVTexture[i].MessageNumber = 0;
-	//		}
-	//
-	//		FMVTexture[i].SmackHandle = 0;
-	//	}
-	//}
+	int i = NumberOfFMVTextures;
+
+	/* AVP Access: called on level start; drop any message left running from
+	   the previous level and put every screen back to static. */
+	AccMedia_PlotStop();
+
+	while(i--)
+	{
+		FMVTexture[i].MessageNumber = 0;
+		FMVTexture[i].PlotPaletteValid = 0;
+		FMVTexture[i].StaticImageDrawn = 0;
+	}
 }
 
 void FindLightingValuesFromTriggeredFMV(unsigned char *bufferPtr, FMVTEXTURE *ftPtr)
@@ -337,7 +360,10 @@ void UpdateFMVTexture(FMVTEXTURE *ftPtr)
 	// update the opengl texture
 	pglBindTexture(GL_TEXTURE_2D, ftPtr->ImagePtr->D3DTexture->id);
 	
-	pglTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 128, 96, GL_RGB, GL_UNSIGNED_BYTE, &ftPtr->RGBBuf[0]);
+	/* AVP Access: the loop above writes four bytes per pixel (R,G,B,255) but this
+	   uploaded them as GL_RGB, three bytes per pixel, so every row was read
+	   skewed. Unnoticed while the screens only ever showed random static. */
+	pglTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 128, 96, GL_RGBA, GL_UNSIGNED_BYTE, &ftPtr->RGBBuf[0]);
 }
 
 void ReleaseFMVTexture(FMVTEXTURE *ftPtr)

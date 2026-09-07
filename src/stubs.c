@@ -16,6 +16,8 @@
 #include "kshape.h"
 #include "d3d_hud.h"
 
+#include "access/acc_media.h"
+
 
 /* winmain.c */
 BOOL KeepMainRifFile = FALSE;
@@ -23,11 +25,14 @@ int HWAccel = 1;
 int VideoModeNotAvailable=0;
 
 /* bink.c */
+
+/* AVP Access: the port shipped these as empty stubs, so the game had no
+   cutscenes at all. We decode the audio track -- which is what carries the
+   story for a player who cannot see the picture -- and let any key skip it.
+   The menu background movie stays a no-op: it is decoration with no audio. */
 void PlayBinkedFMV(char *filenamePtr)
 {
-/*
-	fprintf(stderr, "PlayBinkedFMV(%s)\n", filenamePtr);
-*/
+	AccMedia_PlayMovie(filenamePtr);
 }
 
 void StartMenuBackgroundBink()

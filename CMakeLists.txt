@@ -290,6 +290,10 @@ LIST(APPEND source src/fmv.c)
 LIST(APPEND source src/openal.c)
 LIST(APPEND source src/cdplayer.c)
 LIST(APPEND source src/menus.c)
+LIST(APPEND source src/access/acc_speech.c)
+LIST(APPEND source src/access/acc_media.c)
+LIST(APPEND source src/access/acc_pad.c)
+LIST(APPEND source src/access/acc_menu.c)
 LIST(APPEND source src/main.c)
 
 ### build all source as C++
@@ -335,3 +339,32 @@ IF(OPENGL_TYPE STREQUAL "OPENGLES2")
 ENDIF(OPENGL_TYPE STREQUAL "OPENGLES2")
 
 TARGET_LINK_LIBRARIES(avp ${OPENAL_LIBRARY})
+
+# --- AVP Access: Windows platform libraries ---
+# PathMatchSpecA (files.c, ScanGameDirectory) lives in shlwapi;
+# timeGetTime (io.c, FrameCounterHandler) lives in winmm.
+IF(WIN32)
+  TARGET_LINK_LIBRARIES(avp shlwapi winmm)
+ENDIF(WIN32)
+
+# --- AVP Access: FFmpeg for Bink/Smacker audio ------------------------------
+# The soundtrack ships as Bink files and the cutscenes as Bink/Smacker; FFmpeg
+# decodes both. Entirely optional -- without it acc_media.c compiles to no-ops
+# and the game behaves as it did before, with no music or cutscene audio.
+SET(FFMPEG_ROOT "" CACHE PATH "Root of an FFmpeg build containing include/ and lib/")
+
+FIND_PATH(FFMPEG_INCLUDE_DIR libavcodec/avcodec.h HINTS ${FFMPEG_ROOT}/include)
+FIND_LIBRARY(FFMPEG_AVCODEC    NAMES avcodec    HINTS ${FFMPEG_ROOT}/lib)
+FIND_LIBRARY(FFMPEG_AVFORMAT   NAMES avformat   HINTS ${FFMPEG_ROOT}/lib)
+FIND_LIBRARY(FFMPEG_AVUTIL     NAMES avutil     HINTS ${FFMPEG_ROOT}/lib)
+FIND_LIBRARY(FFMPEG_SWRESAMPLE NAMES swresample HINTS ${FFMPEG_ROOT}/lib)
+FIND_LIBRARY(FFMPEG_SWSCALE    NAMES swscale    HINTS ${FFMPEG_ROOT}/lib)
+
+IF(FFMPEG_INCLUDE_DIR AND FFMPEG_AVCODEC AND FFMPEG_AVFORMAT AND FFMPEG_AVUTIL AND FFMPEG_SWRESAMPLE AND FFMPEG_SWSCALE)
+  MESSAGE(STATUS "FFmpeg found; music and cutscene audio enabled.")
+  TARGET_INCLUDE_DIRECTORIES(avp PRIVATE ${FFMPEG_INCLUDE_DIR})
+  TARGET_COMPILE_DEFINITIONS(avp PRIVATE ACC_HAVE_FFMPEG)
+  TARGET_LINK_LIBRARIES(avp ${FFMPEG_AVFORMAT} ${FFMPEG_AVCODEC} ${FFMPEG_SWRESAMPLE} ${FFMPEG_SWSCALE} ${FFMPEG_AVUTIL})
+ELSE()
+  MESSAGE(WARNING "FFmpeg not found; building without music or cutscene audio. Set FFMPEG_ROOT to enable.")
+ENDIF()

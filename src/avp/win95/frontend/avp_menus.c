@@ -14,6 +14,9 @@
 #include "avp_menus.h"
 #include "avp_envinfo.h"
 
+#include "acc_speech.h"
+#include "acc_menu.h"
+
 #include "hud_layout.h"
 #include "avp_userprofile.h"
 #include "huffman.hpp"
@@ -772,6 +775,22 @@ extern void AvP_UpdateMenus(void)
 		}
 	}
 	ActUponUsersInput();
+
+	/* AVP Access: narrate the highlighted item. Placed after input is applied
+	   so the announcement matches the key the player just pressed, and inside
+	   AvP_UpdateMenus() so it covers the front-end and in-game menus alike. */
+	AccMenu_Poll((int)AvPMenus.CurrentMenu,
+	             AvPMenus.MenuElements,
+	             AvPMenus.NumberOfElementsInMenu,
+	             AvPMenus.CurrentlySelectedElement,
+	             (int)AvPMenus.UserEnteringText || (int)AvPMenus.UserEnteringNumber,
+	             (int)AvPMenus.UserChangingKeyConfig);
+
+	/* AVP Access: F1 speaks the help text for the highlighted item, F2 repeats
+	   the item itself. Neither is bound elsewhere in the menus -- they appear
+	   only in the key-name lookup table. */
+	if (DebouncedKeyboardInput[KEY_F1]) AccMenu_SpeakHelp();
+	if (DebouncedKeyboardInput[KEY_F2]) AccMenu_RepeatCurrent();
 
 }
 
@@ -3244,7 +3263,7 @@ int LengthOfSmallMenuText(char *textPtr);
 static void RenderMenuElement(AVPMENU_ELEMENT *elementPtr, int e, int y)
 {
 	int (*RenderText)(char *textPtr, int x, int y, int alpha, enum AVPMENUFORMAT_ID format);
-	int (*RenderText_Coloured)(char *textPtr, int x, int y, int alpha, enum AVPMENUFORMAT_ID format, int r, int g, int b);
+	int (*RenderText_Coloured)(char *textPtr, int x, int y, int alpha, enum AVPMENUFORMAT_ID format, int r, int g, int b) = NULL;
 	int (*MenuTextLength)(char *textPtr);
 	
 	if (AvPMenus.FontToUse==AVPMENU_FONT_BIG)
@@ -3267,6 +3286,16 @@ static void RenderMenuElement(AVPMENU_ELEMENT *elementPtr, int e, int y)
 		}
 		MenuTextLength = LengthOfSmallMenuText;
 	}
+	/* AVP Access: route this element's text through capture wrappers so the
+	   narration is exactly the string the player would have seen. Done for
+	   every element, not just the highlighted one, because the selection is
+	   updated after rendering -- capturing all of them keeps the announcement
+	   in step with the keypress. */
+	if (AccMenu_BeginCapture(e, RenderText, RenderText_Coloured)) {
+		RenderText          = AccMenu_CaptureRenderText;
+		RenderText_Coloured = AccMenu_CaptureRenderTextColoured;
+	}
+
 
 	switch(elementPtr->ElementID)
 	{
@@ -5091,6 +5120,27 @@ static void TestValidityOfCheatMenu(void)
 }
 
 static unsigned char *BriefingTextString[5];
+
+/* AVP Access: the briefing strings are file-static, so expose them for the
+   spoken menus. The prelude is the substance of the level-select screen, and a
+   player who cannot read it off the page needs it announced. NULL anywhere the
+   briefing is not on show, so the narration stays quiet elsewhere. */
+const char *AccMenu_BriefingLine(int index)
+{
+	switch (AvPMenus.CurrentMenu)
+	{
+		case AVPMENU_MARINELEVELS:
+		case AVPMENU_ALIENLEVELS:
+		case AVPMENU_PREDATORLEVELS:
+			break;
+		default:
+			return NULL;
+	}
+
+	if (index < 0 || index >= 5) return NULL;
+
+	return (const char *)BriefingTextString[index];
+}
 static unsigned char BlankLine[]="";
 
 void SetBriefingTextForEpisode(int episode, I_PLAYER_TYPE playerID)
