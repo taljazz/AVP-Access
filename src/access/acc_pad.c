@@ -17,7 +17,7 @@
    menu element type just for these two. */
 extern void AccPad_ApplyControlMethods(void);   /* usr_io.c */
 extern int  AccMenu_MenusActive(void);
-extern void AccMenu_DecayMenusActive(void);
+extern int  AccMenu_BindingActive(void);
 
 /* Engine state this feeds. */
 extern JOYINFOEX JoystickData;
@@ -25,8 +25,10 @@ extern int GotJoystick;
 extern unsigned char KeyboardInput[MAX_NUMBER_OF_INPUT_KEYS];
 extern unsigned char DebouncedKeyboardInput[MAX_NUMBER_OF_INPUT_KEYS];
 extern unsigned char GotAnyKey;
+extern int DebouncedGotAnyKey;
 
 static SDL_Gamepad *Pad;
+static int PadSubsystemReady;
 
 /* Set by --padtrace; prints why the pad is or is not reaching the engine. */
 int AccPadTrace;
@@ -74,13 +76,23 @@ int AccPad_Init(void)
 
 	if (Pad) return 1;
 
-	if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) return 0;
+	if (!PadSubsystemReady && !SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+		if (AccPadTrace) fprintf(stderr, "ACCPAD: gamepad initialization failed: %s\n", SDL_GetError());
+		return 0;
+	}
 
+	PadSubsystemReady = 1;
 	ids = SDL_GetGamepads(&count);
-	if (!ids) return 0;
+	if (!ids) {
+		if (AccPadTrace) fprintf(stderr, "ACCPAD: gamepad enumeration failed: %s\n", SDL_GetError());
+		return 0;
+	}
+	if (AccPadTrace) fprintf(stderr, "ACCPAD: mapped devices=%d\n", count);
 
 	for (i = 0; i < count && !Pad; i++) {
 		Pad = SDL_OpenGamepad(ids[i]);
+		if (!Pad && AccPadTrace)
+			fprintf(stderr, "ACCPAD: open device %u failed: %s\n", (unsigned int)ids[i], SDL_GetError());
 	}
 	SDL_free(ids);
 
@@ -159,28 +171,51 @@ void AccPad_ReadAxes(void)
 	JoystickData.dwPOV  = (DWORD)-1;
 }
 
-/* Keys this module is currently holding down, so releasing one never clears a
-   key the player is holding on the keyboard. Without this the pad would wipe
-   KEY_UP, KEY_DOWN, KEY_CR and KEY_ESCAPE every frame it did not press them,
-   killing keyboard menu navigation whenever a controller was plugged in. */
+/* Keep the two input sources separate: releasing a controller alias must not
+   release the same key still held on the keyboard. */
 static unsigned char PadKeyHeld[MAX_NUMBER_OF_INPUT_KEYS];
+static unsigned char KeyboardKeyHeld[MAX_NUMBER_OF_INPUT_KEYS];
 
-/* Publishes one key, tracking the press edge for the debounced array. */
+void AccPad_KeyboardKeyEvent(int key, int pressed)
+{
+	if (key >= 0 && key < MAX_NUMBER_OF_INPUT_KEYS)
+		KeyboardKeyHeld[key] = (unsigned char)(pressed != 0);
+}
+
+/* Publish a single combined key state and only generate a fresh press edge.
+   Keyboard events are processed before this, so a keyboard release can briefly
+   clear KeyboardInput even while the pad still holds the same key. */
 static void SetKey(int key, int pressed)
 {
 	if (key < 0 || key >= MAX_NUMBER_OF_INPUT_KEYS) return;
 
 	if (pressed) {
 		GotAnyKey = 1;
-		if (!KeyboardInput[key]) {
-			KeyboardInput[key] = 1;
+		if (!KeyboardInput[key] && !PadKeyHeld[key]) {
 			DebouncedKeyboardInput[key] = 1;
+			DebouncedGotAnyKey = 1;
 		}
+		KeyboardInput[key] = 1;
 		PadKeyHeld[key] = 1;
 	} else if (PadKeyHeld[key]) {
-		KeyboardInput[key] = 0;
+		KeyboardInput[key] = KeyboardKeyHeld[key];
 		PadKeyHeld[key] = 0;
 	}
+}
+
+void AccPad_DeviceRemoved(unsigned int instanceID)
+{
+	int key;
+	if (!Pad || SDL_GetGamepadID(Pad) != (SDL_JoystickID)instanceID) return;
+
+	if (AccPadTrace) fprintf(stderr, "ACCPAD: disconnected %s\n", PadName);
+	for (key = 0; key < MAX_NUMBER_OF_INPUT_KEYS; key++) SetKey(key, 0);
+	AccPad_Shutdown();
+	GotJoystick = 0;
+	JoystickData.dwXpos = JoystickData.dwYpos = 32768;
+	JoystickData.dwUpos = JoystickData.dwVpos = JoystickData.dwRpos = 32768;
+	JoystickData.dwPOV = (DWORD)-1;
+	/* Keep the SDL subsystem active so connection events can reopen the pad. */
 }
 
 void AccPad_ReadButtons(void)
@@ -188,7 +223,7 @@ void AccPad_ReadButtons(void)
 	int i;
 	int held[ACC_PAD_BUTTONS];
 	int lt, rt;
-	int menus;
+	int menus, binding, lx, ly;
 
 	if (!Pad) return;
 
@@ -210,51 +245,59 @@ void AccPad_ReadButtons(void)
 	for (i = 0; i < ACC_PAD_BUTTONS; i++)
 		SetKey(KEY_JOYSTICK_BUTTON_1 + i, held[i]);
 
-	/* Start always reaches the menus -- it is the one button a player will try
-	   when they want out, and Escape is what the engine listens for. */
-	SetKey(KEY_ESCAPE, held[9]);
-
 	/* The rest of the cursor set is only published while a menu is up, so the
 	   same buttons stay free for binding during play. Without this the front
 	   end could not be driven from the pad at all until the player had somehow
 	   navigated to the key-configuration screen to bind it. */
 	menus = AccMenu_MenusActive();
+	binding = AccMenu_BindingActive();
+	lx = SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_LEFTX);
+	ly = SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_LEFTY);
 
 	{
-		int up    = held[12] || (SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_LEFTY) < -ACC_STICK_DEADZONE);
-		int down  = held[13] || (SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_LEFTY) >  ACC_STICK_DEADZONE);
-		int left  = held[14] || (SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_LEFTX) < -ACC_STICK_DEADZONE);
-		int right = held[15] || (SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_LEFTX) >  ACC_STICK_DEADZONE);
+		int up    = held[12] || (ly < -ACC_STICK_DEADZONE);
+		int down  = held[13] || (ly >  ACC_STICK_DEADZONE);
+		int left  = held[14] || (lx < -ACC_STICK_DEADZONE);
+		int right = held[15] || (lx >  ACC_STICK_DEADZONE);
 
-		SetKey(KEY_UP,    menus && up);
-		SetKey(KEY_DOWN,  menus && down);
-		SetKey(KEY_LEFT,  menus && left);
-		SetKey(KEY_RIGHT, menus && right);
-		SetKey(KEY_CR,    menus && held[0]);   /* A selects  */
+		SetKey(KEY_UP,    menus && !binding && up);
+		SetKey(KEY_DOWN,  menus && !binding && down);
+		SetKey(KEY_LEFT,  menus && !binding && left);
+		SetKey(KEY_RIGHT, menus && !binding && right);
+		SetKey(KEY_CR,    menus && !binding && held[0]);   /* A selects  */
 	}
 
-	if (menus && held[1]) SetKey(KEY_ESCAPE, 1);   /* B goes back */
+	/* Publish Escape once: holding B must not release/re-press it every frame.
+	   Start stays available to cancel binding capture; B remains bindable. */
+	SetKey(KEY_ESCAPE, held[9] || (menus && !binding && held[1]));
 
-	/* Diagnostic, printed only when the state changes so it cannot flood:
-	   confirms this runs at all, whether the menus are recognised as active,
-	   and whether the synthesized cursor key actually landed. */
+	/* Compare the actual button/key masks, not just "any button": changing
+	   D-pad direction while another button is held must still be visible. */
 	if (AccPadTrace) {
-		static int lastMenus = -1, lastAny = -1;
-		int any = 0;
+		static int lastMenus = -1, lastBinding = -1, lastKeys = -1;
+		static unsigned int lastButtons = ~0u;
+		unsigned int mask = 0;
+		int keys = (KeyboardInput[KEY_UP] ? 1 : 0)
+		         | (KeyboardInput[KEY_DOWN] ? 2 : 0)
+		         | (KeyboardInput[KEY_LEFT] ? 4 : 0)
+		         | (KeyboardInput[KEY_RIGHT] ? 8 : 0)
+		         | (KeyboardInput[KEY_CR] ? 16 : 0)
+		         | (KeyboardInput[KEY_ESCAPE] ? 32 : 0);
 
-		for (i = 0; i < ACC_PAD_BUTTONS; i++) if (held[i]) any = 1;
-
-		if (menus != lastMenus || any != lastAny) {
-			fprintf(stderr, "ACCPAD: menus=%d anyButton=%d KEY_UP=%d KEY_DOWN=%d KEY_CR=%d\n",
-			        menus, any, (int)KeyboardInput[KEY_UP],
-			        (int)KeyboardInput[KEY_DOWN], (int)KeyboardInput[KEY_CR]);
+		for (i = 0; i < ACC_PAD_BUTTONS; i++) if (held[i]) mask |= 1u << i;
+		if (menus != lastMenus || binding != lastBinding || mask != lastButtons || keys != lastKeys) {
+			fprintf(stderr, "ACCPAD: menus=%d binding=%d buttons=%04x left=(%d,%d) KEY_UP=%d KEY_DOWN=%d KEY_CR=%d KEY_ESCAPE=%d anyEdge=%d\n",
+			        menus, binding, mask, lx, ly, (int)KeyboardInput[KEY_UP],
+			        (int)KeyboardInput[KEY_DOWN], (int)KeyboardInput[KEY_CR],
+			        (int)KeyboardInput[KEY_ESCAPE], DebouncedGotAnyKey);
 			fflush(stderr);
 			lastMenus = menus;
-			lastAny = any;
+			lastBinding = binding;
+			lastButtons = mask;
+			lastKeys = keys;
 		}
 	}
 
-	AccMenu_DecayMenusActive();
 }
 
 /* ----------------------------------------------------------- diagnostic -- */

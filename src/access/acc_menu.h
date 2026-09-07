@@ -62,6 +62,8 @@ const char *AccMenu_BriefingLine(int index);
    as cursor keys or stay free for in-game bindings. Call the decay once per
    frame from whoever polls the pad. */
 int  AccMenu_MenusActive(void);
+/* Read the current engine binding mode, including when speech is unavailable. */
+int  AccMenu_BindingActive(void);
 void AccMenu_DecayMenusActive(void);
 
 /* Forget cached state so the next poll always announces. */

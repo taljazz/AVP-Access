@@ -2141,7 +2141,7 @@ static void ActUponUsersInput(void)
 			signed int key,selectedKey=-1;
 
 			// see if a valid key has been pressed
-			for (key = 0 ; key <= MAX_NUMBER_OF_INPUT_KEYS ; key++)
+			for (key = 0 ; key < MAX_NUMBER_OF_INPUT_KEYS ; key++)
 			{
 				if (!(key == KEY_ESCAPE) &&
 //					!(key >= KEY_F1 && key <= KEY_F12) &&
@@ -5117,6 +5117,12 @@ static void TestValidityOfCheatMenu(void)
 	CheatMode_GetNextAllowedMode(AvPMenus.MenuElements[0].c.SliderValuePtr,TRUE);
 	CheatMode_GetNextAllowedSpecies(AvPMenus.MenuElements[1].c.SliderValuePtr,TRUE);
 	CheatMode_GetNextAllowedEnvironment(AvPMenus.MenuElements[2].c.SliderValuePtr,TRUE);
+}
+
+/* Binding state must be current even when no screen reader is active. */
+int AccMenu_BindingActive(void)
+{
+	return AvPMenus.UserChangingKeyConfig != 0;
 }
 
 static unsigned char *BriefingTextString[5];

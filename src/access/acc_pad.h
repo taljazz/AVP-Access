@@ -25,6 +25,8 @@ extern "C" {
 /* Opens the first attached gamepad. Returns 1 if one was found. */
 int  AccPad_Init(void);
 void AccPad_Shutdown(void);
+/* Release this device's keys/axes when SDL reports it was disconnected. */
+void AccPad_DeviceRemoved(unsigned int instanceID);
 
 int  AccPad_IsPresent(void);
 const char *AccPad_Name(void);      /* never NULL */
@@ -35,6 +37,9 @@ void AccPad_ReadAxes(void);
 /* Publishes button state as engine keys. Call once per frame, from the same
    place the old joystick button loop ran. */
 void AccPad_ReadButtons(void);
+
+/* Record physical keyboard transitions before the pad adds its menu aliases. */
+void AccPad_KeyboardKeyEvent(int key, int pressed);
 
 /* Diagnostic: prints what SDL reports from the pad for `seconds`, so a pad that
    is detected but does nothing can be told apart from one the engine is

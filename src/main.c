@@ -36,6 +36,7 @@
 #include "gammacontrol.h"
 #include "opengl.h"
 #include "avp_menus.h"
+#include "access/acc_menu.h"
 #include "avp_mp_config.h"
 #include "npcsetup.h"
 #include "cdplayer.h"
@@ -566,7 +567,14 @@ int InitSDL()
 		} else {
 		SDL_InitSubSystem(SDL_INIT_JOYSTICK);
 			
-		joy = SDL_OpenJoystick(0);
+		{
+			int count = 0, index;
+			SDL_JoystickID *ids = SDL_GetJoysticks(&count);
+			/* SDL3 opens instance IDs, not SDL2's zero-based device indexes. */
+			for (index = 0; ids && index < count && !joy; index++)
+				joy = SDL_OpenJoystick(ids[index]);
+			SDL_free(ids);
+		}
 		if (joy) {
 			GotJoystick = 1;
 			
@@ -1140,6 +1148,8 @@ static void handle_keypress(int key, int unicode, int press)
 		}
 	}
 	
+	AccPad_KeyboardKeyEvent(key, press);
+
 	if (press && !KeyboardInput[key]) {
 		DebouncedKeyboardInput[key] = 1;
 		DebouncedGotAnyKey = 1;
@@ -1168,6 +1178,24 @@ void CheckForWindowsMessages()
 	
 	while (SDL_PollEvent(&event)) {
 		switch(event.type) {
+			case SDL_EVENT_GAMEPAD_ADDED:
+				/* Bluetooth controllers may become available after startup. */
+				if (WantJoystick && !AccPad_IsPresent() && AccPad_Init()) {
+					if (joy) { SDL_CloseJoystick(joy); joy = NULL; }
+					JoystickCaps.wCaps = 0;
+					AccPad_ReadAxes();
+					if (AccPadTrace) fprintf(stderr, "ACCPAD: connected %s\n", AccPad_Name());
+				}
+				break;
+			case SDL_EVENT_GAMEPAD_REMOVED:
+				AccPad_DeviceRemoved((unsigned int)event.gdevice.which);
+				/* If another mapped pad is attached, it can take over immediately. */
+				if (WantJoystick && !AccPad_IsPresent() && AccPad_Init()) {
+					JoystickCaps.wCaps = 0;
+					AccPad_ReadAxes();
+					if (AccPadTrace) fprintf(stderr, "ACCPAD: connected %s\n", AccPad_Name());
+				}
+				break;
 			case SDL_EVENT_MOUSE_BUTTON_DOWN:
 				break;
 			case SDL_EVENT_MOUSE_BUTTON_UP:
@@ -1288,6 +1316,10 @@ void CheckForWindowsMessages()
 		}
 		}
 	}
+
+	/* Decay even with no controller: reconnecting during gameplay must not
+	   inherit menu state from before the device was disconnected. */
+	AccMenu_DecayMenusActive();
 
 //#warning Redo WantX, need to split it out better so fullscreen can temporary set relative without clobbering user setting
 	if ((KeyboardInput[KEY_LEFTALT]||KeyboardInput[KEY_RIGHTALT]) && DebouncedKeyboardInput[KEY_CR]) {
@@ -1576,6 +1608,10 @@ int main(int argc, char *argv[])
 		}
 	}
 #endif
+	if (AccPadTrace) {
+		setvbuf(stderr, NULL, _IONBF, 0);
+		fprintf(stderr, "ACCPAD: startup joystickEnabled=%d\n", WantJoystick);
+	}
 	InitGameDirectories(argv[0], gamedatapath);
 
 	/* AVP Access: bring speech up before anything can need announcing. */
@@ -1592,6 +1628,9 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 		
+	if (AccPadTrace)
+		fprintf(stderr, "ACCPAD: SDL ready mapped=%d GotJoystick=%d\n", AccPad_IsPresent(), GotJoystick);
+
 	LoadCDTrackList();
 	
 	SetFastRandom();
