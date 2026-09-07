@@ -267,6 +267,11 @@ static void SetDefaultProfileOptions(AVP_USER_PROFILE *profilePtr)
 			
 extern void GetSettingsFromUserProfile(void)
 {
+	/* Save the upgraded secondary bindings through the normal profile save. */
+	AccPad_UpgradeLegacyMarineBindings(
+		&UserProfilePtr->MarineInputPrimaryConfig,
+		&UserProfilePtr->MarineInputSecondaryConfig);
+
 	RequestedGammaSetting = UserProfilePtr->GammaSetting;
 
 	MarineInputPrimaryConfig = 		UserProfilePtr->MarineInputPrimaryConfig;

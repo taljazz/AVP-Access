@@ -28,6 +28,11 @@
 #include "paintball.h"
 #include "ahudgadg.hpp"
 #include "avp_menus.h"
+#include "acc_pad.h"
+#include "acc_status.h"
+#include <SDL3/SDL_timer.h>
+#include <stdio.h>
+#include <string.h>
 
 extern int InGameMenusAreRunning(void);
 extern void AvP_TriggerInGameMenus(void);
@@ -612,7 +617,47 @@ PLAYER_INPUT_CONFIGURATION DefaultAlienInputPrimaryConfig =
 	KEY_TAB,
 };
 #endif
+/* AVP Access: Marine pad preset; primary keyboard/mouse bindings remain. */
 PLAYER_INPUT_CONFIGURATION DefaultMarineInputSecondaryConfig =
+{
+	KEY_VOID,			// Forward;
+	KEY_VOID,			// Backward;
+	KEY_VOID, 			// Left;
+	KEY_VOID, 			// Right;
+
+	KEY_VOID,			// Strafe;
+	KEY_VOID,	 		// StrafeLeft;
+	KEY_VOID,	 		// StrafeRight;
+
+	KEY_NUMPAD8,		// LookUp;
+	KEY_NUMPAD2,		// LookDown;
+	KEY_NUMPAD5,		// CentreView;
+
+	KEY_JOYSTICK_BUTTON_11,		// Walk;
+	KEY_JOYSTICK_BUTTON_2, 		// Crouch;
+	KEY_JOYSTICK_BUTTON_1,			// Jump;
+
+	KEY_JOYSTICK_BUTTON_3,				// Operate;
+
+	KEY_JOYSTICK_BUTTON_8, 		// FirePrimaryWeapon;
+	KEY_JOYSTICK_BUTTON_7, 		// FireSecondaryWeapon;
+
+    {KEY_JOYSTICK_BUTTON_4},  	// NextWeapon;
+    {KEY_JOYSTICK_BUTTON_5},	// PreviousWeapon;
+    {KEY_VOID},			// FlashbackWeapon;
+
+    {KEY_JOYSTICK_BUTTON_13},			// ImageIntensifier;
+    {KEY_JOYSTICK_BUTTON_6}, 		// ThrowFlare;
+    {KEY_VOID}, 		// Jetpack;
+    {KEY_VOID},			// Taunt
+
+    {KEY_VOID},
+    {KEY_VOID},
+    {KEY_VOID},
+    {KEY_VOID}
+};
+
+static const PLAYER_INPUT_CONFIGURATION LegacyMarineInputSecondaryConfig =
 {
 	KEY_VOID,			// Forward;
 	KEY_VOID,			// Backward;
@@ -650,6 +695,24 @@ PLAYER_INPUT_CONFIGURATION DefaultMarineInputSecondaryConfig =
     {KEY_VOID},
     {KEY_VOID}
 };
+
+/* AVP Access: preserve custom bindings while upgrading the old secondary
+   defaults. Compare all bytes, including unused slots, and leave the primary
+   keyboard/mouse mapping intact. The configured primary default may have been
+   loaded from default.cfg. Applying this twice is harmless: the new secondary
+   no longer matches the legacy table. */
+int AccPad_UpgradeLegacyMarineBindings(
+    const PLAYER_INPUT_CONFIGURATION *primary,
+    PLAYER_INPUT_CONFIGURATION *secondary)
+{
+    if (memcmp(primary, &DefaultMarineInputPrimaryConfig, sizeof(*primary)) != 0 ||
+        memcmp(secondary, &LegacyMarineInputSecondaryConfig, sizeof(*secondary)) != 0)
+        return 0;
+
+    *secondary = DefaultMarineInputSecondaryConfig;
+    return 1;
+}
+
 
 
 
@@ -835,6 +898,112 @@ void InitPlayerGameInput(STRATEGYBLOCK* sbPtr)
 
 }
 
+
+/* Trace only input configuration and control state, never profile names or text.
+   Analog changes are limited to twice a second; releases and action/menu/focus
+   transitions are immediate so a short press cannot disappear from the trace. */
+static void AccPad_TraceGameInput(const PLAYER_STATUS *player,
+    const PLAYER_INPUT_CONFIGURATION *primary,
+    const PLAYER_INPUT_CONFIGURATION *secondary)
+{
+	extern JOYINFOEX JoystickData;
+	static PLAYER_INPUT_CONFIGURATION lastPrimary, lastSecondary;
+	static int lastSpecies = -1, haveState;
+	static int lastLogged[17], previousActions, previousAxes;
+	static Uint64 nextReport;
+	int state[17], actions, axes, changedBindings, urgent;
+	Uint64 now;
+	size_t i;
+
+	if (!AccPadTrace) return;
+	changedBindings = lastSpecies != (int)AvP.PlayerType
+	    || memcmp(&lastPrimary, primary, sizeof(*primary))
+	    || memcmp(&lastSecondary, secondary, sizeof(*secondary));
+	if (changedBindings) {
+		const unsigned char *p = (const unsigned char *)primary;
+		const unsigned char *s = (const unsigned char *)secondary;
+		fprintf(stderr, "ACCPAD BIND: species=%d primary=[", (int)AvP.PlayerType);
+		for (i = 0; i < sizeof(*primary); i++) fprintf(stderr, "%s%u", i ? "," : "", (unsigned int)p[i]);
+		fprintf(stderr, "] secondary=[");
+		for (i = 0; i < sizeof(*secondary); i++) fprintf(stderr, "%s%u", i ? "," : "", (unsigned int)s[i]);
+		fprintf(stderr, "] jump=%u/%u use=%u/%u fire=%u/%u altFire=%u/%u\n",
+		    (unsigned int)primary->Jump, (unsigned int)secondary->Jump,
+		    (unsigned int)primary->Operate, (unsigned int)secondary->Operate,
+		    (unsigned int)primary->FirePrimaryWeapon, (unsigned int)secondary->FirePrimaryWeapon,
+		    (unsigned int)primary->FireSecondaryWeapon, (unsigned int)secondary->FireSecondaryWeapon);
+		lastPrimary = *primary;
+		lastSecondary = *secondary;
+		lastSpecies = (int)AvP.PlayerType;
+	}
+	state[0] = GotJoystick;
+	state[1] = IOFOCUS_AcceptControls();
+	state[2] = InGameMenusAreRunning();
+	state[3] = DebouncedKeyboardInput[FixedInputConfig.PauseGame] != 0;
+	state[4] = (int)JoystickData.dwXpos - 32768;
+	state[5] = (int)JoystickData.dwYpos - 32768;
+	state[6] = (int)JoystickData.dwUpos - 32768;
+	state[7] = (int)JoystickData.dwVpos - 32768;
+	state[8] = player->Mvt_MotionIncrement;
+	state[9] = player->Mvt_SideStepIncrement;
+	state[10] = player->Mvt_TurnIncrement;
+	state[11] = player->Mvt_PitchIncrement;
+	state[12] = player->Mvt_InputRequests.Flags.Rqst_Jump;
+	state[13] = player->Mvt_InputRequests.Flags.Rqst_Operate;
+	state[14] = player->Mvt_InputRequests.Flags.Rqst_FirePrimaryWeapon;
+	state[15] = player->Mvt_InputRequests.Flags.Rqst_FireSecondaryWeapon;
+	state[16] = player->Mvt_InputRequests.Flags.Rqst_Crouch;
+	actions = state[12] | (state[13] << 1) | (state[14] << 2) | (state[15] << 3) | (state[16] << 4);
+	axes = (state[4] != 0) | ((state[5] != 0) << 1)
+	    | ((state[6] != 0) << 2) | ((state[7] != 0) << 3);
+	now = SDL_GetTicks();
+	urgent = !haveState || changedBindings || memcmp(state, lastLogged, 4 * sizeof(int))
+	    || actions != previousActions || (previousAxes & ~axes);
+	if (urgent || (now >= nextReport && memcmp(state, lastLogged, sizeof(state)))) {
+		fprintf(stderr, "ACCPAD GAME: species=%d joystick=%d focus=%d menu=%d pause=%d XYUV=(%d,%d,%d,%d) move=%d strafe=%d turn=%d pitch=%d jump=%d use=%d fire=%d altFire=%d crouch=%d\n",
+		    (int)AvP.PlayerType, state[0], state[1], state[2], state[3],
+		    state[4], state[5], state[6], state[7], state[8], state[9], state[10], state[11],
+		    state[12], state[13], state[14], state[15], state[16]);
+		fflush(stderr);
+		memcpy(lastLogged, state, sizeof(state));
+		haveState = 1;
+		nextReport = now + 500;
+	}
+	previousActions = actions;
+	previousAxes = axes;
+}
+
+/* Status shortcuts are fallbacks: an explicit player binding always wins.
+   Ignore the reserved expansion bytes at the end of the configuration. */
+static int AccStatus_KeyIsBound(int key, const PLAYER_INPUT_CONFIGURATION *primary,
+    const PLAYER_INPUT_CONFIGURATION *secondary)
+{
+	const unsigned char *p = (const unsigned char *)primary;
+	const unsigned char *s = (const unsigned char *)secondary;
+	int i;
+	for (i = 0; i < NUMBER_OF_MARINE_INPUTS; i++)
+		if (p[i] == key || s[i] == key) return 1;
+	return 0;
+}
+
+static void AccStatus_CheckRequest(const PLAYER_STATUS *player,
+    const PLAYER_INPUT_CONFIGURATION *primary,
+    const PLAYER_INPUT_CONFIGURATION *secondary)
+{
+	int keyboard, gamepad;
+	if (AvP.PlayerType != I_Marine || !player->IsAlive || player->DemoMode
+	    || AvP.LevelCompleted || !IOFOCUS_AcceptControls() || InGameMenusAreRunning()) return;
+	keyboard = DebouncedKeyboardInput[KEY_H]
+	    && !AccStatus_KeyIsBound(KEY_H, primary, secondary);
+	gamepad = DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9]
+	    && !AccStatus_KeyIsBound(KEY_JOYSTICK_BUTTON_9, primary, secondary);
+	if (!keyboard && !gamepad) return;
+
+	/* Consume only our unbound shortcuts so another read in this same frame
+	   cannot repeat the announcement. Leave custom gameplay bindings intact. */
+	if (keyboard) DebouncedKeyboardInput[KEY_H] = 0;
+	if (gamepad) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9] = 0;
+	AccStatus_AnnounceMarine(player);
+}
 
 /* This function maps raw inputs onto the players movement attributes in
    the player_status block.  It is called from the ExecuteFreeMovement
@@ -1349,7 +1518,7 @@ void ReadPlayerGameInput(STRATEGYBLOCK* sbPtr)
 	}
 	
 	/* KJL 18:27:34 04/29/97 - joystick control */
-	if (GotJoystick)
+	if (GotJoystick && IOFOCUS_AcceptControls() && !InGameMenusAreRunning())
 	{
 		#define JOYSTICK_DEAD_ZONE 12000
 		extern JOYINFOEX JoystickData;
@@ -1621,6 +1790,8 @@ void ReadPlayerGameInput(STRATEGYBLOCK* sbPtr)
 	}
 	#endif
 	if (DebouncedKeyboardInput[KEY_GRAVE]) IOFOCUS_Toggle();
+	AccStatus_CheckRequest(playerStatusPtr, primaryInput, secondaryInput);
+	AccPad_TraceGameInput(playerStatusPtr, primaryInput, secondaryInput);
 }
 
 void LoadKeyConfiguration(void)

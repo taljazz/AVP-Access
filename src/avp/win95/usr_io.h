@@ -319,6 +319,11 @@ typedef struct
 	extern void SaveAKeyConfiguration(char* Filename);
 void LoadDefaultPrimaryConfigs(void);
 
+/* Upgrade unchanged legacy Marine bindings; returns nonzero when upgraded. */
+int AccPad_UpgradeLegacyMarineBindings(
+    const PLAYER_INPUT_CONFIGURATION *primary,
+    PLAYER_INPUT_CONFIGURATION *secondary);
+
 #ifdef __cplusplus
 	};
 	// ...linkage wrapping added by DHM 17/3/98
