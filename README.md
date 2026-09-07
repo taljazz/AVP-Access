@@ -51,13 +51,40 @@ reads real profile names.
 spoken, hooked at the single point they all funnel through. Mission preludes are read
 on the level-select screens.
 
+**Marine status.** During gameplay, press **H** or the Xbox **View/Back** button
+(the small button with two overlapping squares) to hear health, armor, weapon,
+loaded ammunition, and spare magazines. Fuel, grenade types, and each pistol in a
+dual-pistol loadout are described separately. Each press speaks once and interrupts
+older speech. If either shortcut is already assigned to a gameplay action in your
+Marine controls, that assignment takes priority; the other shortcut remains usable.
+
 **Music and cutscenes.** Neither was implemented in the port. Both are restored by
 decoding the Bink and Smacker files the retail release ships, via FFmpeg: the
 soundtrack, the fullscreen intros and outros with picture and sound, and the in-game
 wall-monitor briefings.
 
-**Gamepad support.** SDL3's gamepad layer, so an Xbox controller works without
-configuration, including menu navigation.
+**Gamepad support.** SDL3's mapped gamepad layer provides Xbox menu navigation
+and twin-stick movement/look. Controllers can connect or reconnect after startup.
+A selects, B goes back, and Start opens the pause menu. Select Resume Game with A
+to resume. Menu aliases are disabled while capturing a binding.
+
+Marine has a default controller layout in the secondary bindings:
+
+| Control | Marine action |
+| --- | --- |
+| Left stick / right stick | Move and strafe / look |
+| RT / LT | Primary / secondary fire |
+| A / B / X | Jump / crouch / interact |
+| Y / LB | Next / previous weapon |
+| RB | Throw flare |
+| D-pad Up | Image intensifier |
+| Hold left stick click | Walk (running is the default) |
+| View/Back or keyboard H | Speak Marine status (when unbound) |
+
+Unchanged older Marine binding sets receive this layout when their profile loads.
+Custom binding sets are preserved; use the game's control settings to assign their
+controller buttons. Primary keyboard/mouse bindings stay available. Predator and
+Alien action buttons still need manual bindings. See the handover for live-test status.
 
 Several long-standing bugs in the engine were fixed along the way — see
 [docs/HANDOVER.md](docs/HANDOVER.md), which documents the engine's traps in detail.
@@ -120,3 +147,17 @@ Flags added for testing without having to play to the content in question:
 
 Note that MSVC has no `getopt_long`, so the Windows build previously ignored *every*
 command-line option; a hand-rolled parser was added.
+
+## Controller regression checks
+
+Run `tests\controller\run_tests.bat` to compile the controller module with mocked
+SDL input and check menu press/hold/release, any-key prompts, overlapping keyboard
+input, binding capture, and disconnect/reconnect behavior. It runs without a
+controller or game window. Coverage also includes both sticks, trigger thresholds,
+all button slots, and transitions from menus to gameplay.
+
+Run `tests\gameplay\run_input_tests.bat` to check actual gameplay input, menu/focus
+blocking, Marine preset migration, and custom-binding preservation. See
+`tests/controller/README.md` and `tests/gameplay/README.md` for details.
+Run `tests\status\run_tests.bat` to check spoken status against engine data,
+including percentage rounding, ammunition types, invalid state, and speech calls.

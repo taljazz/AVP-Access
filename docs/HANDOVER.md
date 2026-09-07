@@ -1,8 +1,9 @@
 # AVP Access — engine notes and handover
 
 Written so that someone picking this up cold — human or another assistant — starts with
-the map rather than rediscovering it. Everything here was verified against the running
-game, not inferred from reading.
+the map rather than rediscovering it. The original engine notes were verified against
+the running game. The controller follow-up below distinguishes automated checks from
+live observations and work still awaiting confirmation.
 
 The theme, if there is one: this engine is 25 years old and the Windows path of the port
 is not continuously tested. Several bugs below had been dormant for years because nothing
@@ -16,10 +17,11 @@ three of the four hardest problems in this project were misdiagnosed on first in
 ```
 APV Access/
   NakedAVP/      this repository — engine source + src/access/
+    tools/       env.bat, configure.bat, build.bat, run.bat
+    tests/controller/  standalone input regression checks
   game/          working copy of the retail data, lowercased (NOT in git)
   third_party/   SDL3, OpenAL Soft, FFmpeg (NOT in git)
   build/         build output + runtime DLLs
-  tools/         env.bat, configure.bat, build.bat, run.bat
 ```
 
 The retail install is left pristine; `game/` is a copy. Data files and folders must be
@@ -37,6 +39,7 @@ All new code is in `src/access/`, kept separate from engine source:
 | File | Role |
 | --- | --- |
 | `acc_speech.*` | Tolk screen-reader output |
+| `acc_status.*` | On-demand Marine health, armor, weapon, and ammo speech |
 | `acc_menu.*` | Spoken menus, via render-text capture |
 | `acc_media.*` | Bink/Smacker music, cutscenes, plot messages (FFmpeg) |
 | `acc_pad.*` | SDL3 gamepad |
@@ -143,7 +146,11 @@ All pre-existing, all worth upstreaming.
    definition in `win95/io.c` is `unsigned char`. Writing through the wrong declaration
    clobbers four bytes of the adjacent `KeyboardInput` array.
 
-## 6. Gamepad — current state and the open problem
+## 6. Gamepad
+
+Menus, Marine movement and look, pause/resume, firing, jumping and interacting are
+user-confirmed working. What remains unverified is listed in the follow-up below and in
+§8 -- read those before assuming any part of this is still broken.
 
 `src/access/acc_pad.c` uses SDL3's gamepad layer (not raw `SDL_Joystick`, whose numbering is
 device-specific). Axes are written into the `JOYINFOEX` the engine already reads:
@@ -158,7 +165,9 @@ Buttons publish as the engine's bindable `KEY_JOYSTICK_BUTTON_1..16`. Cursor key
 Enter/Escape are published **only while a menu is up**, so the same buttons stay free for
 in-game bindings.
 
-Two bugs fixed here:
+Two bugs found in the first pass. The first has since been **superseded** -- see the
+follow-up below, where pad and keyboard state are tracked separately rather than the pad
+merely owning its keys:
 - The pad cleared its keys every frame it did not press them. Since it is read *after*
   keyboard events, it wiped `KEY_UP`/`KEY_DOWN`/`KEY_CR`/`KEY_ESCAPE` right after the
   keyboard set them — so plugging in a controller broke keyboard menu navigation. It now
@@ -169,13 +178,120 @@ Two bugs fixed here:
   existed has the right stick disabled. Settings are now re-asserted every frame from
   `AccPad_ApplyControlMethods()` in `usr_io.c`.
 
-**Status: unresolved.** SDL reads the controller perfectly (confirmed with `--padtest`: all
-buttons and both sticks report), and `--padtrace` confirms the pad code runs each frame and
-that menu state is detected. But the user reports the pad still does nothing in the game. The
-two fixes above are plausible causes but are **not yet confirmed to fix it**. The next step is
-`--padtrace` output taken while pressing the D-pad in a menu: `anyButton=1` with `KEY_UP=1`
-means the pad reaches the engine and the fault is further in; `anyButton=1` with `KEY_UP=0`
-means the gating is wrong.
+### Controller follow-up — 2026-09-07
+
+The user reproduced unresponsive menus with an Xbox Bluetooth controller. One SDL
+probe saw no mapped controller; a later fresh probe detected the Xbox Series X
+Controller and XInput reported changing input. This suggests connection timing,
+but does not establish the cause of every earlier failure. The old engine opened
+controllers only at startup and ignored SDL gamepad add/remove events.
+
+Changes now implemented:
+
+- `CheckForWindowsMessages()` handles gamepad connection/removal events. A pad
+  that appears after startup can open, disconnect releases its synthetic keys and
+  centers its axes, and another connected pad can take over. SDL subsystem setup
+  is not repeated on every rescan. The raw joystick fallback now opens an SDL3
+  instance ID from `SDL_GetJoysticks()`, rather than the invalid device index 0.
+- New controller key presses set `DebouncedGotAnyKey`, allowing loading prompts,
+  death restart, and completion waits to see the same press edge as the keyboard.
+- Start/B are combined before publishing Escape, so holding B produces one Back
+  edge. Physical keyboard state is tracked separately so releasing a controller
+  alias preserves the same key held on the keyboard, and vice versa.
+- `AccMenu_BindingActive()` reads the current menu binding-capture state directly.
+  A, B, and D-pad buttons bind as joystick buttons instead of Enter/Escape/arrows.
+  Start still cancels capture. The binding scan also stops before the array bound.
+- Menu-state countdown now advances even while no pad is connected, preventing
+  stale menu aliases when reconnecting during gameplay.
+- `--padtrace` reports startup, device enumeration/open failures, connection
+  changes, button masks, menu/binding state, synthesized keys and any-key edges.
+  It now records button-to-button changes even if another button remains held.
+
+Verification: Windows rebuild succeeded. The actual controller C module passes
+50 assertions across nine hardware-free regression scenarios; the prior code
+failed 15 of the 40 applicable assertions. The rebuilt game's live trace detects
+the Xbox Series X Controller and shows D-pad Up/Down and A reaching menu keys.
+The user confirmed that menu navigation, selection, and Back now work with the
+Xbox controller over Bluetooth. In the subsequent Marine test, the user confirmed
+left-stick movement, right-stick look, and Start to pause / A on Resume Game.
+The user subsequently confirmed Marine firing, jumping and interacting with the
+new action bindings. Live reconnection, binding capture, loading/restart prompts,
+and remaining action/character coverage still need verification.
+
+Run `tests\controller\run_tests.bat` for the regression suite. During live menu
+diagnosis, use `tools\run.bat -w --padtrace`: `mapped=0` means no mapped pad opened;
+`buttons=2000` with `KEY_DOWN=1` means D-pad Down reached the engine. If keys reach
+the engine but the menu stays still, inspect `ActUponUsersInput()` and
+`InputIsDebounced` before changing the SDL mapping.
+
+### Marine gameplay follow-up — 2026-09-07
+
+All three inspected local profiles had the original keyboard/mouse binding tables,
+with no joystick buttons assigned. The Marine secondary defaults now provide RT/LT
+fire, A jump, B crouch, X operate, Y/LB next/previous weapon, RB flare, D-pad Up image
+intensifier, and left-stick click walk. A selected profile migrates only when both
+Marine secondary bindings match the legacy defaults and primary bindings match
+the configured primary defaults exactly. Custom bindings are retained,
+and the binary profile format is unchanged. New profiles and Reset to Defaults use
+the same preset; primary keyboard/mouse defaults remain intact. The old secondary
+mouse/numpad fire, middle-mouse jump, Enter operate, and mouse-wheel weapon shortcuts
+are replaced by controller buttons; secondary numpad look controls remain. Predator and Alien
+presets are still pending.
+
+Joystick gameplay processing now uses the same input-focus/menu guard as keyboard
+actions. Previously sticks could request movement while the console owned input or
+multiplayer menus were open; single-player pause normally hid this by skipping the
+world update. Start opens the pause menu; use A on Resume Game to resume, since the
+root pause menu deliberately ignores Escape/Back.
+
+`--padtrace` now also records active action bindings and gameplay movement/action
+requests, including right-stick input. Windows rebuild and whitespace checks passed.
+The controller bridge passes 240 assertions across 13 scenarios. The actual
+`ReadPlayerGameInput` fixture passes 12 checks (the previous source fails the two
+focus/menu checks), plus the Marine preset/migration checks, including save/reload
+idempotence and 16,320 single-byte custom-binding preservation cases. Run
+`tests\gameplay\run_input_tests.bat` for the input and preset checks. Deterministic
+trace testing also covers throttling, neutral releases and short action presses.
+
+The user confirmed Marine movement/look and Start/A pause/resume before this
+action-binding update. The rebuilt game's live trace confirms the Marine preset
+loaded, with A reaching jump, X operate, B crouch, RT primary fire and LT secondary
+fire, as well as both sticks reaching movement/look. The user subsequently
+confirmed that firing, jumping and interacting now work during Marine gameplay.
+These actions are now verified in play as well as in the engine input trace.
+
+### Spoken Marine status — 2026-09-07
+
+During live Marine gameplay, H or Xbox View/Back (joystick button 9) requests one
+immediate spoken readout. `AccStatus_CheckRequest()` runs at the end of
+`ReadPlayerGameInput()` after console/pause handling. It combines simultaneous
+shortcuts and consumes only eligible press edges. Active custom primary/secondary
+bindings take priority independently for each shortcut. Menus, console input,
+death, demo playback, completed levels, and other characters suppress the request.
+No profile layout or controller preset changes are needed for these shortcuts.
+
+`acc_status.c` formats live player data: health/armor percentages use the Marine's
+difficulty-specific starting values with HUD rounding (including the below-full
+99-percent rule). Fixed-point arithmetic uses wide intermediates. Loaded ammo
+rounds up without overflow, and spare magazines exclude the currently loaded one.
+Pulse rifle grenades, flamethrower fuel/tanks, right/left pistol ammo, and selected
+grenade-launcher types have separate wording. Grenade counts come from the equipped
+weapon, not the potentially stale per-type stores. Melee weapons do not announce
+ammo; Cudgel's incorrect Pulse rifle template name is overridden. Slot, weapon,
+ammo and localized-text lookups are guarded, with fallbacks for missing data.
+
+Requested speech uses `AccSpeech_Say(..., 1)`, so repeat requests work even when
+status has not changed. `--padtrace` logs `ACCSTATUS: speech=<available> <text>`.
+The status fixture compiles the actual module with mocked engine data and speech;
+the gameplay fixture checks shortcut edges, suppression, and custom bindings.
+Run `tests\status\run_tests.bat` and `tests\gameplay\run_input_tests.bat`.
+Windows rebuild and whitespace checks passed. The actual status module passed 89
+assertions across 12 scenarios; the gameplay fixture passed 33 checks, including
+108 shortcut/binding combinations, plus the existing Marine preset checks.
+The live game detected NVDA and logged requested status with ammunition changing
+from 99 to 92 to 66 rounds after the user's shots, with health/armor, weapon and
+spare-magazine values included. The user subsequently confirmed that the spoken
+Marine status readout is audible and correct through NVDA.
 
 ## 7. Debugging notes
 
@@ -188,12 +304,20 @@ means the gating is wrong.
   clock, before the real cause showed up.
 - Cross-check claims about content against the source files with `ffprobe`/`ffmpeg` before
   concluding the code is wrong.
+- **This machine sets `NoDefaultCurrentDirectoryInExePath=1`**, so cmd refuses to run an
+  executable from the working directory unless it is written `.\name.exe`. It surfaces as
+  `'name.exe' is not recognized`, which reads like a failed build rather than a refusal to
+  execute. The test runners hit this and appeared to fail wholesale while the tests
+  themselves were fine. Always invoke built binaries with an explicit path.
 
 ## 8. Not yet done
 
-- Confirming the gamepad fixes (see §6).
-- The gameplay accessibility layer proper: motion tracker as a 3D audio radar, raycast sonar,
-  status readout, assisted targeting, and route guidance to objectives. §3 lists the engine
+- Remaining live controller validation: reconnection, binding capture,
+  loading/restart prompts, and other actions/characters. Menus, Marine movement/look,
+  pause/resume, firing, jumping and interacting are user-confirmed (see §6).
+- Remaining gameplay accessibility work: motion tracker as a 3D audio radar,
+  raycast sonar, status support for other characters, assisted targeting, and route
+  guidance to objectives. §3 lists the engine
   primitives each would build on. This is the work that decides whether a level can be
   *finished* rather than merely navigated.
 - Briefing audio for the plot messages is listener-relative, not positioned at the screen —
