@@ -64,24 +64,46 @@ Several long-standing bugs in the engine were fixed along the way — see
 
 ## Building (Windows)
 
-Requires MSVC, CMake and Ninja (Visual Studio ships all three), plus SDL3, OpenAL Soft
-and FFmpeg. FFmpeg is optional: without it the game builds and runs, simply with no
-music or cutscenes.
+Visual Studio with the C++ workload is the only thing you need to install — it ships
+CMake and Ninja, and `tools\` finds them for you.
+
+Expected layout, with this repository checked out as `NakedAVP`:
 
 ```
-cmake -S . -B build -G Ninja ^
-  -DSDL3_INCLUDE=<sdl3>/include -DSDL3_LIBRARY=<sdl3>/lib/x64/SDL3.lib ^
-  -DOPENAL_INCLUDE_DIR=<openal>/include/AL -DOPENAL_LIBRARY=<openal>/libs/Win64/OpenAL32.lib ^
-  -DFFMPEG_ROOT=<ffmpeg>
-cmake --build build
+AVP Access\
+  NakedAVP\      this repository
+  third_party\   SDL3-*, openal-soft-*, ffmpeg-*  (unpack them, names are globbed)
+  game\          your game data, copied and lowercased
+  build\         created for you
 ```
 
-Copy `SDL3.dll`, `OpenAL32.dll` (OpenAL Soft's `soft_oal.dll`, renamed), the FFmpeg
-DLLs and `Tolk.dll` next to the executable. Point `AVP_DATA` at your game data
-directory, whose files and folders must be lowercase.
+Then:
 
-Linux and macOS should still build — the accessibility layer is guarded so that
-platforms without Tolk or FFmpeg compile to no-ops.
+```
+NakedAVP\tools\build.bat     configure if needed, build, stage the runtime DLLs
+NakedAVP\tools\run.bat -w    run windowed (arguments are passed through)
+```
+
+`tools\env.bat` locates Visual Studio with `vswhere` and finds the SDKs by globbing
+their version-stamped folder names, so nothing is pinned to one machine; every value
+can be overridden from the environment (`VSROOT`, `SDL3_DIR`, `OPENAL_DIR`,
+`FFMPEG_ROOT`, `AVP_ROOT`, `TOLK_DIR`).
+
+FFmpeg is optional — without it the game builds and runs, simply with no music or
+cutscenes.
+
+`tools\stagedlls.bat` copies the runtime DLLs next to the executable. One step there is
+easy to miss by hand: **OpenAL Soft ships as `soft_oal.dll` and must be renamed to
+`OpenAL32.dll`**. Tolk is not vendored — it is a separate project with its own licence —
+so point `TOLK_DIR` at a folder containing `Tolk.dll`, `nvdaControllerClient64.dll` and
+`SAAPI64.dll`, or drop them into `build\` yourself. Without it the game runs, silently.
+
+Game data must be lowercase, files and folders both; `lower.sh` does that on a
+case-sensitive filesystem.
+
+Linux and macOS should still build — the accessibility layer is guarded so platforms
+without Tolk or FFmpeg compile to no-ops. The `tools\` scripts are Windows-only;
+elsewhere invoke CMake directly.
 
 ## Diagnostics
 
