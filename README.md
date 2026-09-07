@@ -68,6 +68,13 @@ intensifier is active. Custom gameplay bindings take priority over each shortcut
 If status and tracker are requested together, status is spoken first and a fresh
 press is needed for the tracker.
 
+**Sonar sweep.** Press **R**, or **D-pad Left**, to hear the shape of the space you
+are standing in. Nine rays scan 180 degrees ahead; the game names what it finds --
+"Corridor ahead. Walls 2 metres left, 2 metres right", "Dead end. Wall 1 metre
+ahead", "Wall ahead, opening left" -- and pings each sector left to right. Walls use
+the tracker's three distance pitches; openings use its click, so a way through never
+sounds like a distant wall.
+
 **Music and cutscenes.** Neither was implemented in the port. Both are restored by
 decoding the Bink and Smacker files the retail release ships, via FFmpeg: the
 soundtrack, the fullscreen intros and outros with picture and sound, and the in-game
@@ -198,9 +205,10 @@ runners do it.
 | `tests\status\run_tests.bat` | Spoken status against engine data: percentage rounding, ammunition types, invalid state, speech calls | 89 |
 | `tests\gameplay\run_input_tests.bat` | Gameplay input, menu and focus blocking, all eight stick directions, Marine preset migration, custom-binding preservation | 82 |
 | `tests\tracker\run_hud_tests.bat` | Actual HUD detection, sweep timing, contact snapshots, resets, gameplay eligibility | 45 |
+| `tests\sonar\run_tests.bat` | Space shape naming, sector openings, distance rounding, ping schedule and reset, with the raycast mocked to build synthetic rooms | 37 |
 | `tests\media\run_tests.bat` | Menu music selection and restart behaviour, media fallback when FFmpeg or a file is missing | 22 |
 
-Roughly 1,057 checks in total. Each suite's `README.md` has the detail.
+Roughly 1,094 checks in total. Each suite's `README.md` has the detail.
 
 **What they do not cover.** These fixtures inspect engine call parameters, not perceived
 audio: they can confirm a cue was requested at the right position and volume, never that

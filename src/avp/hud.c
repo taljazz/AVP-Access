@@ -25,6 +25,7 @@
 #include "psnd.h"
 #include "acc_speech.h"
 #include "acc_tracker.h"
+#include "acc_sonar.h"
 #include "psndplat.h"
 #include "dynamics.h"
 
@@ -189,6 +190,10 @@ int Fast2dMagnitude(int dx, int dy);
 ****************************************************************************************KJL*/
 void AccTracker_ResetHUD(void)
 {
+	/* The sonar sweep has the same lifecycle as the tracker: anything that
+	   invalidates tracker state (level change, death, pause, vision mode)
+	   equally invalidates a sweep still playing out. */
+	AccSonar_Reset();
 	AccTracker_Reset();
 	NoOfMTBlips=0;
 	MTScanLineSize=PreviousMTScanLineSize=MOTIONTRACKER_SMALLESTSCANLINESIZE;

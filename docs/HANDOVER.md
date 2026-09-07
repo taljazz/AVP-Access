@@ -455,6 +455,75 @@ No source or executable changes were needed for this validation. The existing
 automated/build results above remain applicable; this session adds user listening
 and controller observations, not another automated test run.
 
+### Sonar sweep — 2026-09-07
+
+`src/access/acc_sonar.c`. Where the tracker answers "what is moving near me",
+this answers "what shape is the room". On demand only -- R on the keyboard, or
+D-pad Left (joystick button 15) -- dispatched from the same
+`AccAccess_CheckRequests()` as status and tracker, with the same binding-conflict
+checks and gameplay gates. Status wins a simultaneous press, then tracker, then
+sonar; every edge is consumed regardless so a losing request cannot fire again
+next frame.
+
+Nine rays span 180 degrees ahead, 22.5 degrees apart, out to 8 metres. Range is
+room scale deliberately: the tracker reaches 30 m, but beyond about 8 m a sweep
+stops describing the room and starts describing the level.
+
+Raycast conventions, which are easy to get wrong:
+
+- `FindPolygonInLineOfSight(direction, position, useOnScreenBlockList, ignore)`
+  needs `LOS_ObjectHitPtr` cleared and `LOS_Lambda` preset to the maximum range
+  *before* the call; results come back in those same globals. Direction must be
+  a unit vector scaled to `ONE_FIXED`, and **both vectors are modified**, so pass
+  throwaway copies.
+- Test `LOS_Lambda < range` for a hit, **not** `LOS_ObjectHitPtr`. World geometry
+  shortens the ray without ever setting an object pointer, and walls are the
+  entire point of the sweep.
+- Cast from eye height (`Global_VDB_Ptr->VDB_World.vy`), not the player position,
+  or the sweep describes the floor and whatever step the player is stood on.
+- Heading is the same 4096-units-per-turn convention as the tracker: zero faces
+  +Z, a quarter turn (1024) faces +X.
+
+The first version reported only wall distances per sector. The user's verdict was
+that it "does not report corridors -- it only reports how far away walls are",
+which was the right criticism: knowing a wall is 3 m to the left is not what you
+act on, knowing you are in a corridor is. It now names the space and follows with
+the numbers: "Corridor ahead. Walls 2 metres left, 2 metres right", "Dead end.
+Wall 1 metre ahead", "Wall ahead, opening left", "Open space". All eight
+open/blocked combinations across the three sectors are named explicitly.
+
+A sector counts as open when *any* of its three rays reaches full range. That is
+deliberately generous -- better to mention a gap that proves shallow than to miss
+a doorway -- and is the first thing to tighten if alcoves start reading as
+openings.
+
+Only three things are played, one per sector, left then ahead then right, 500 ms
+apart. A ping per ray at that spacing would take over four seconds; this lands in
+about one. Walls use the three tracker pitches the player already knows (near
+high, far low) rather than a second vocabulary for the same idea. Openings use
+`SID_TRACKER_CLICK`, positioned out at the edge of range along the sector, so
+"you can walk this way" never sounds like a distant wall. In the first version
+openings were simply silent, which is why it seemed to report walls only.
+
+Playback reuses `AccTracker_PlayContact()` rather than duplicating it, so the 3D
+volume scaling and the Marine-AI `m` flag are handled in exactly one place.
+`AccSonar_Reset()` is called from `AccTracker_ResetHUD()`: a sweep has the same
+lifecycle as tracker state, so everything that invalidates one invalidates the
+other.
+
+Validation: Windows build clean with no warnings; 37 assertions across 13
+scenarios in `tests\sonar\run_tests.bat`, which mocks the raycast and so can
+describe a synthetic corridor, dead end or doorway ray by ray. The clock is
+passed into both `AccSonar_Request()` and `AccSonar_Update()` rather than read
+inside, so the ping schedule is deterministic under test. Those checks inspect
+call parameters, not perceived audio.
+
+The user confirmed live in a Marine level that left-to-right movement is
+perceptible, the spoken summary is audible through NVDA, and after the shape
+change that the sweep tells them what the space is. Not yet exercised: lifts and
+moving geometry, very large open rooms, and whether the generous open-sector rule
+holds up across the whole campaign.
+
 ## 7. Debugging notes
 
 - Get real exit codes by running through a `.bat` that echoes `%ERRORLEVEL%`; PowerShell's
@@ -487,11 +556,14 @@ and controller observations, not another automated test run.
   transitions. Core Marine contact detection, speech/beeps, headphone direction
   and distance tones, empty responses, pause/resume, intensifier on/off and mission
   restart are user-confirmed (see §6).
-- Remaining gameplay accessibility work: raycast sonar, status support for other
-  characters, assisted targeting, and route
-  guidance to objectives. §3 lists the engine
-  primitives each would build on. This is the work that decides whether a level can be
-  *finished* rather than merely navigated.
+- Broader live sonar coverage: lifts and moving geometry, very large rooms, and
+  whether the deliberately generous open-sector rule holds across the campaign.
+  Corridor, dead-end and opening naming, the ping timing and the wall/opening
+  distinction are user-confirmed (see §6).
+- Remaining gameplay accessibility work: route guidance to objectives, status and
+  tracker support for Predator and Alien, and assisted targeting. §3 lists the
+  engine primitives each would build on. Route guidance is the one that decides
+  whether a level can be *finished* rather than merely navigated.
 - Briefing audio for the plot messages is listener-relative, not positioned at the screen —
   `VolumeOfNearestVideoScreen`/`PanningOfNearestVideoScreen` exist in `fmv.c` but are never
   set or read by anything.

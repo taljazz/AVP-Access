@@ -296,6 +296,7 @@ LIST(APPEND source src/access/acc_tracker.c)
 LIST(APPEND source src/access/acc_tracker_test.c)
 LIST(APPEND source src/access/acc_media.c)
 LIST(APPEND source src/access/acc_pad.c)
+LIST(APPEND source src/access/acc_sonar.c)
 LIST(APPEND source src/access/acc_menu.c)
 LIST(APPEND source src/main.c)
 

@@ -31,6 +31,7 @@
 #include "avp_menus.h"
 #include "acc_pad.h"
 #include "acc_status.h"
+#include "acc_sonar.h"
 #include "acc_tracker.h"
 #include <SDL3/SDL_timer.h>
 #include <stdio.h>
@@ -992,6 +993,7 @@ static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSB
     const PLAYER_INPUT_CONFIGURATION *secondary)
 {
 	int statusKeyboard, statusGamepad, trackerKeyboard, trackerGamepad;
+	int sonarKeyboard, sonarGamepad, wantTracker, wantSonar;
 	if (AvP.PlayerType != I_Marine || !player->IsAlive || player->DemoMode
 	    || AvP.LevelCompleted || !IOFOCUS_AcceptControls() || InGameMenusAreRunning()) return;
 	statusKeyboard = DebouncedKeyboardInput[KEY_H]
@@ -1002,8 +1004,15 @@ static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSB
 	    && !AccAccess_KeyIsBound(KEY_T, primary, secondary);
 	trackerGamepad = DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14]
 	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_14, primary, secondary);
-	if (!statusKeyboard && !statusGamepad
-	    && ((!trackerKeyboard && !trackerGamepad) || !dynamics)) return;
+	sonarKeyboard = DebouncedKeyboardInput[KEY_R]
+	    && !AccAccess_KeyIsBound(KEY_R, primary, secondary);
+	sonarGamepad = DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_15]
+	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_15, primary, secondary);
+
+	/* Both the tracker and the sonar need the player's position and heading. */
+	wantTracker = (trackerKeyboard || trackerGamepad) && dynamics != NULL;
+	wantSonar = (sonarKeyboard || sonarGamepad) && dynamics != NULL;
+	if (!statusKeyboard && !statusGamepad && !wantTracker && !wantSonar) return;
 
 	/* Consume only our unbound shortcuts so another read in this same frame
 	   cannot repeat the announcement. Leave custom gameplay bindings intact. */
@@ -1011,10 +1020,18 @@ static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSB
 	if (statusGamepad) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9] = 0;
 	if (trackerKeyboard) DebouncedKeyboardInput[KEY_T] = 0;
 	if (trackerGamepad) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14] = 0;
-	/* Status wins simultaneous requests; consume the tracker edges too so a
-	   second input read cannot queue another interruption from the same press. */
+	if (sonarKeyboard) DebouncedKeyboardInput[KEY_R] = 0;
+	if (sonarGamepad) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_15] = 0;
+	/* One readout per frame, so two shortcuts pressed together cannot talk over
+	   each other. Status is the most urgent, then the tracker's threat report,
+	   then the sonar's description of the room. Every edge is consumed above
+	   regardless, so a losing request cannot fire again next frame. */
 	if (statusKeyboard || statusGamepad) AccStatus_AnnounceMarine(player);
-	else AccTracker_Announce(&dynamics->Position, dynamics->OrientEuler.EulerY);
+	else if (wantTracker)
+		AccTracker_Announce(&dynamics->Position, dynamics->OrientEuler.EulerY);
+	else if (wantSonar)
+		AccSonar_Request(&dynamics->Position, dynamics->OrientEuler.EulerY,
+		                 (unsigned int)SDL_GetTicks());
 }
 
 /* This function maps raw inputs onto the players movement attributes in
@@ -1803,6 +1820,9 @@ void ReadPlayerGameInput(STRATEGYBLOCK* sbPtr)
 	#endif
 	if (DebouncedKeyboardInput[KEY_GRAVE]) IOFOCUS_Toggle();
 	AccAccess_CheckRequests(playerStatusPtr, sbPtr->DynPtr, primaryInput, secondaryInput);
+	/* Plays the sweep tones a sonar request scheduled, spread over time so the
+	   fan is heard moving left to right rather than as one chord. */
+	AccSonar_Update((unsigned int)SDL_GetTicks());
 	AccPad_TraceGameInput(playerStatusPtr, primaryInput, secondaryInput);
 }
 
