@@ -23,6 +23,15 @@ input, death, other species, demos, completed levels, and same-frame pause/conso
 transitions suppress the request. These tests verify input routing; status text
 formatting and screen-reader output are tested separately.
 
+Tracker shortcut checks use a second announcement spy: T and Xbox D-pad Down
+pass the current world position and heading once per press, combine simultaneous
+tracker shortcuts, and preserve custom bindings across all 27 active slots in
+both tables. The same gameplay gates apply, and missing player dynamics safely
+suppresses tracker-only requests. If status and tracker are requested together,
+status wins and eligible tracker edges are consumed, preventing a queued second
+interruption. Custom-bound edges remain intact. Existing status behavior also
+remains valid without player dynamics.
+
 `test_gameplay_input.exe trace` provides a deterministic diagnostic sample:
 14 gameplay lines and 3 binding-table lines. It exercises the 500 ms analog
 throttle, neutral releases including a short excursion inside the throttle

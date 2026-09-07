@@ -58,6 +58,16 @@ dual-pistol loadout are described separately. Each press speaks once and interru
 older speech. If either shortcut is already assigned to a gameplay action in your
 Marine controls, that assignment takes priority; the other shortcut remains usable.
 
+**Marine motion tracker.** Contact beeps now come from the detected direction,
+with the game's existing distance tones and sweep timing. Press **T** or Xbox
+**D-pad Down** to hear the nearest tracked contact ahead as a clock bearing and
+approximate distance: 12 o'clock is ahead, 3 is right, and 9 is left. This uses
+the game's current tracker blips and detection rules within its 30-meter range;
+it does not detect every enemy. The tracker is unavailable while the image
+intensifier is active. Custom gameplay bindings take priority over each shortcut.
+If status and tracker are requested together, status is spoken first and a fresh
+press is needed for the tracker.
+
 **Music and cutscenes.** Neither was implemented in the port. Both are restored by
 decoding the Bink and Smacker files the retail release ships, via FFmpeg: the
 soundtrack, the fullscreen intros and outros with picture and sound, and the in-game
@@ -80,6 +90,7 @@ Marine has a default controller layout in the secondary bindings:
 | D-pad Up | Image intensifier |
 | Hold left stick click | Walk (running is the default) |
 | View/Back or keyboard H | Speak Marine status (when unbound) |
+| D-pad Down or keyboard T | Speak nearest tracker contact (when unbound) |
 
 Unchanged older Marine binding sets receive this layout when their profile loads.
 Custom binding sets are preserved; use the game's control settings to assign their
@@ -161,3 +172,9 @@ blocking, Marine preset migration, and custom-binding preservation. See
 `tests/controller/README.md` and `tests/gameplay/README.md` for details.
 Run `tests\status\run_tests.bat` to check spoken status against engine data,
 including percentage rounding, ammunition types, invalid state, and speech calls.
+
+Run `tests\tracker\run_tests.bat` for contact descriptions, bearing/distance
+boundaries, speech and spatial-audio parameters. Run
+`tests\tracker\run_hud_tests.bat` for actual HUD detection, sweep timing,
+contact snapshots, resets and gameplay eligibility. These checks use mocked
+outputs; directional listening still needs a live game test.

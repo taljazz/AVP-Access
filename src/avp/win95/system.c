@@ -20,6 +20,7 @@
 #include "pheromon.h"
 #include "huddefs.h"
 #include "hud.h"
+#include "acc_tracker.h"
 //#include "hudgfx.h"
 #include "fmv.h"
 #include "font.h"
@@ -786,6 +787,7 @@ void LoadRifFile()
 
 int Destroy_CurrentEnvironment(void)
 {
+	AccTracker_ResetHUD();
 	// RWH destroys all en specific data
 
 	// function to change environment when we 

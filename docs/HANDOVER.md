@@ -18,7 +18,7 @@ three of the four hardest problems in this project were misdiagnosed on first in
 APV Access/
   NakedAVP/      this repository — engine source + src/access/
     tools/       env.bat, configure.bat, build.bat, run.bat
-    tests/controller/  standalone input regression checks
+    tests/       controller, gameplay, status and tracker regression checks
   game/          working copy of the retail data, lowercased (NOT in git)
   third_party/   SDL3, OpenAL Soft, FFmpeg (NOT in git)
   build/         build output + runtime DLLs
@@ -40,6 +40,7 @@ All new code is in `src/access/`, kept separate from engine source:
 | --- | --- |
 | `acc_speech.*` | Tolk screen-reader output |
 | `acc_status.*` | On-demand Marine health, armor, weapon, and ammo speech |
+| `acc_tracker.*` | Directional tracker cues and spoken contact bearings/distances |
 | `acc_menu.*` | Spoken menus, via render-text capture |
 | `acc_media.*` | Bink/Smacker music, cutscenes, plot messages (FFmpeg) |
 | `acc_pad.*` | SDL3 gamepad |
@@ -263,7 +264,7 @@ These actions are now verified in play as well as in the engine input trace.
 ### Spoken Marine status — 2026-09-07
 
 During live Marine gameplay, H or Xbox View/Back (joystick button 9) requests one
-immediate spoken readout. `AccStatus_CheckRequest()` runs at the end of
+immediate spoken readout. `AccAccess_CheckRequests()` (originally `AccStatus_CheckRequest()`) runs at the end of
 `ReadPlayerGameInput()` after console/pause handling. It combines simultaneous
 shortcuts and consumes only eligible press edges. Active custom primary/secondary
 bindings take priority independently for each shortcut. Menus, console input,
@@ -293,6 +294,62 @@ from 99 to 92 to 66 rounds after the user's shots, with health/armor, weapon and
 spare-magazine values included. The user subsequently confirmed that the spoken
 Marine status readout is audible and correct through NVDA.
 
+### Marine motion tracker — 2026-09-07
+
+The next implemented milestone adds directional contact beeps and a spoken
+tracker request on T or Xbox D-pad Down (joystick button 14). The shared
+`AccAccess_CheckRequests()` in `usr_io.c` preserves H/View status, custom bindings,
+all existing gameplay gates and press-edge behavior. Status wins simultaneous
+requests; eligible tracker edges are consumed so it cannot interrupt next frame.
+Tracker speech also requires player dynamics for current position and heading.
+
+`DoMotionTrackerBlips()` retains the original object filters, sweep crossings,
+capacity, nearest-contact tie order and beep lock. It additionally returns the
+world position of the contact that earned the original beep. The three distance
+tones and 2D scan click retain their original cadence. After fading, `hud.c`
+publishes value copies of the remaining blips' world X/Z coordinates. Speech
+uses these existing contacts, not an independent scan or saved object pointers.
+
+`acc_tracker.c` formats the nearest contact still ahead and inside tracker range.
+Range/nearest selection and approximate meters use the HUD's `Fast2dMagnitude`
+metric (max + integer min/3); Euclidean distance would incorrectly reject some
+visible diagonal contacts. Widened coordinate arithmetic prevents subtraction
+overflow. Heading is 4096 units per turn, zero toward +Z, 1024 toward +X. Clock
+bearings are rounded to the nearest hour; a contact below one meter is described
+as within one meter. Empty valid snapshots say no contacts ahead; invalidated
+snapshots say the tracker is unavailable. Distances are approximate, and existing
+blips can persist briefly after an object stops moving.
+
+`AccTracker_PlayContact()` uses `Sound_Play` format `nevm`: copied 3D data, external
+handle, explicit volume, and Marine-AI ignore. The `m` flag matters because Marine
+AI otherwise hears newly positional feedback. Inner/outer radii are two/three
+times tracker range to avoid attenuating ordinary detectable contacts. Y is
+flattened to listener height for a horizontal bearing. 3D audio bypasses the
+platform's 2D volume scaling, so this adapter applies that scaling exactly once
+to preserve existing loudness. Missing listener/invalid spatial data falls back
+to the original 2D cue. OpenAL handles listener rotation. The retail tracker
+samples inspected in `common.ffl` are mono and suitable for spatial playback.
+
+`AccTracker_ResetHUD()` clears blips, cached speech data, scan/previous scan,
+delay, distance lock and live cue handle. It runs from HUD init/reinit/kill,
+`Destroy_CurrentEnvironment()` (including lift world changes), single-player
+pause, and inactive tracker frames. Tracker activity requires an alive Marine,
+normal vision, game input focus, no menu/demo/completed level, no observer mode
+and no attached facehugger. Image intensifier therefore makes speech unavailable,
+matching the visual tracker. Live pause/resume and restart must still be checked.
+
+Validation: the complete Windows build passed, as did 224 tracker-module
+assertions across 11 scenarios, 45 actual-source HUD checks, and the gameplay
+input/preset suite (including status regression, 108 tracker binding combinations
+and the existing 16,320 custom-preset preservation cases). The build still reports
+the pre-existing `NewWidth`/`NewHeight` warnings in `main.c`; this change does not
+touch that path. Run `tests\tracker\run_tests.bat`,
+`tests\tracker\run_hud_tests.bat` and `tests\gameplay\run_input_tests.bat`.
+`--padtrace` records `ACCTRACKER: cue=...` and `ACCTRACKER: speech=...` for live
+diagnosis. Automated audio checks inspect engine call parameters, not perceived
+direction or loudness. User confirmation of directional audio and spoken tracker
+contacts remains pending; prior Marine status is already user-confirmed above.
+
 ## 7. Debugging notes
 
 - Get real exit codes by running through a `.bat` that echoes `%ERRORLEVEL%`; PowerShell's
@@ -315,8 +372,10 @@ Marine status readout is audible and correct through NVDA.
 - Remaining live controller validation: reconnection, binding capture,
   loading/restart prompts, and other actions/characters. Menus, Marine movement/look,
   pause/resume, firing, jumping and interacting are user-confirmed (see §6).
-- Remaining gameplay accessibility work: motion tracker as a 3D audio radar,
-  raycast sonar, status support for other characters, assisted targeting, and route
+- Live verification of the new directional Marine tracker and spoken contacts,
+  including pause/resume, image intensifier and restart transitions.
+- Remaining gameplay accessibility work: raycast sonar, status support for other
+  characters, assisted targeting, and route
   guidance to objectives. §3 lists the engine
   primitives each would build on. This is the work that decides whether a level can be
   *finished* rather than merely navigated.

@@ -19,9 +19,18 @@ static PLAYER_STATUS player;
 static STRATEGYBLOCK strategy;
 static int status_announcements;
 static const PLAYER_STATUS *status_player;
+static DYNAMICSBLOCK dynamics;
+static int tracker_announcements, tracker_yaw;
+static const VECTORCH *tracker_player;
+static VECTORCH tracker_position;
 
 void AccStatus_AnnounceMarine(const struct player_status *value)
 { ++status_announcements; status_player = value; }
+void AccTracker_Announce(const struct vectorch *value, int yaw)
+{
+    ++tracker_announcements; tracker_player = value;
+    tracker_position = *value; tracker_yaw = yaw;
+}
 
 OurBool IOFOCUS_AcceptControls(void) { return accepts_controls ? Yes : No; }
 void IOFOCUS_Toggle(void) { accepts_controls = !accepts_controls; }
@@ -81,6 +90,9 @@ static void setup(void)
     AvP.PlayerType = I_Marine; AvP.LevelCompleted = 0; GotJoystick = 1; GotMouse = 0;
     accepts_controls = 1; menu_active = 0;
     status_announcements = 0; status_player = NULL;
+    tracker_announcements = 0; tracker_player = NULL; tracker_yaw = 0;
+    memset(&dynamics, 0, sizeof(dynamics));
+    memset(&tracker_position, 0, sizeof(tracker_position));
     JoystickControlMethods = DefaultJoystickControlMethods;
     AccPad_ApplyControlMethods(); neutral_axes();
 }
@@ -241,6 +253,128 @@ static void status_input_tests(void)
     setup();
 }
 
+static void tracker_setup(void)
+{
+    setup(); strategy.DynPtr = &dynamics;
+    dynamics.Position.vx = 1234; dynamics.Position.vy = -5678; dynamics.Position.vz = 9012;
+    dynamics.OrientEuler.EulerY = 3072;
+}
+
+static void tracker_input_tests(void)
+{
+    int key, table, index, gate, all_custom_preserved = 1, all_gates_preserved = 1;
+    tracker_setup(); status_press(KEY_T); ReadPlayerGameInput(&strategy);
+    check(tracker_announcements == 1 && tracker_player == &dynamics.Position &&
+          tracker_position.vx == 1234 && tracker_position.vy == -5678 &&
+          tracker_position.vz == 9012 && tracker_yaw == 3072 && !status_announcements,
+          "T requests tracker using the current world position and heading");
+    check(!DebouncedKeyboardInput[KEY_T], "handled tracker shortcut consumes its press edge");
+    ReadPlayerGameInput(&strategy);
+    check(tracker_announcements == 1, "repeated input read in the same frame does not repeat tracker");
+    memset(DebouncedKeyboardInput, 0, sizeof(DebouncedKeyboardInput));
+    ReadPlayerGameInput(&strategy);
+    check(tracker_announcements == 1, "holding T across frames does not repeat tracker");
+    KeyboardInput[KEY_T] = 0; ReadPlayerGameInput(&strategy);
+    dynamics.Position.vx = -321; dynamics.OrientEuler.EulerY = 1024;
+    status_press(KEY_T); ReadPlayerGameInput(&strategy);
+    check(tracker_announcements == 2 && tracker_position.vx == -321 && tracker_yaw == 1024,
+          "fresh T press requests tracker with the latest position and heading");
+
+    tracker_setup(); status_press(KEY_JOYSTICK_BUTTON_14); ReadPlayerGameInput(&strategy);
+    check(tracker_announcements == 1 && !DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14],
+          "Xbox D-pad Down requests tracker and consumes its press edge");
+    ReadPlayerGameInput(&strategy);
+    memset(DebouncedKeyboardInput, 0, sizeof(DebouncedKeyboardInput));
+    ReadPlayerGameInput(&strategy);
+    check(tracker_announcements == 1, "held Xbox D-pad Down does not repeat tracker");
+    tracker_setup(); status_press(KEY_T); status_press(KEY_JOYSTICK_BUTTON_14);
+    ReadPlayerGameInput(&strategy);
+    check(tracker_announcements == 1 && !DebouncedKeyboardInput[KEY_T] &&
+          !DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14],
+          "simultaneous T and D-pad Down produce one tracker announcement");
+
+    tracker_setup(); MarineInputPrimaryConfig.Jump = KEY_T;
+    status_press(KEY_T); status_press(KEY_JOYSTICK_BUTTON_14); ReadPlayerGameInput(&strategy);
+    check(tracker_announcements == 1 && player.Mvt_InputRequests.Flags.Rqst_Jump &&
+          DebouncedKeyboardInput[KEY_T] && !DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14],
+          "custom T binding survives while unbound D-pad Down requests tracker");
+    tracker_setup(); MarineInputSecondaryConfig.Operate = KEY_JOYSTICK_BUTTON_14;
+    status_press(KEY_T); status_press(KEY_JOYSTICK_BUTTON_14); ReadPlayerGameInput(&strategy);
+    check(tracker_announcements == 1 && player.Mvt_InputRequests.Flags.Rqst_Operate &&
+          !DebouncedKeyboardInput[KEY_T] && DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14],
+          "custom D-pad Down binding survives while unbound T requests tracker");
+    for (key = 0; key < 2; ++key) for (table = 0; table < 2; ++table)
+    for (index = 0; index < NUMBER_OF_MARINE_INPUTS; ++index) {
+        int hotkey = key ? KEY_JOYSTICK_BUTTON_14 : KEY_T;
+        PLAYER_INPUT_CONFIGURATION *config;
+        tracker_setup(); config = table ? &MarineInputSecondaryConfig : &MarineInputPrimaryConfig;
+        ((unsigned char *)config)[index] = (unsigned char)hotkey;
+        status_press(hotkey); ReadPlayerGameInput(&strategy);
+        if (tracker_announcements || !DebouncedKeyboardInput[hotkey]) all_custom_preserved = 0;
+    }
+    check(all_custom_preserved, "all 108 tracker hotkey/table/active-binding combinations preserve custom bindings");
+    tracker_setup();
+    ((unsigned char *)&MarineInputPrimaryConfig)[27] = KEY_T;
+    ((unsigned char *)&MarineInputSecondaryConfig)[31] = KEY_JOYSTICK_BUTTON_14;
+    status_press(KEY_T); status_press(KEY_JOYSTICK_BUTTON_14); ReadPlayerGameInput(&strategy);
+    check(tracker_announcements == 1, "inactive expansion bytes do not claim tracker shortcuts");
+
+    for (key = 0; key < 2; ++key) for (gate = 0; gate < 9; ++gate) {
+        int hotkey = key ? KEY_JOYSTICK_BUTTON_14 : KEY_T;
+        tracker_setup(); status_press(hotkey);
+        switch (gate) {
+            case 0: menu_active = 1; break;
+            case 1: accepts_controls = 0; break;
+            case 2: player.IsAlive = 0; break;
+            case 3: AvP.PlayerType = I_Predator; break;
+            case 4: AvP.PlayerType = I_Alien; break;
+            case 5: player.DemoMode = 1; break;
+            case 6: AvP.LevelCompleted = 1; break;
+            case 7: status_press(KEY_ESCAPE); break;
+            case 8: status_press(KEY_GRAVE); break;
+        }
+        ReadPlayerGameInput(&strategy);
+        if (tracker_announcements || !DebouncedKeyboardInput[hotkey]) all_gates_preserved = 0;
+    }
+    check(all_gates_preserved,
+          "both tracker shortcuts respect menus, focus, life, species, demos, level end and same-frame UI transitions");
+    setup(); status_press(KEY_T); status_press(KEY_JOYSTICK_BUTTON_14); ReadPlayerGameInput(&strategy);
+    check(!tracker_announcements && DebouncedKeyboardInput[KEY_T] &&
+          DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14],
+          "missing dynamics safely suppresses tracker without consuming its shortcuts");
+    status_press(KEY_H); ReadPlayerGameInput(&strategy);
+    check(status_announcements == 1 && !tracker_announcements && !DebouncedKeyboardInput[KEY_T] &&
+          !DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14],
+          "status still works without dynamics and consumes simultaneous fallback tracker requests");
+
+    tracker_setup(); status_press(KEY_H); status_press(KEY_JOYSTICK_BUTTON_9);
+    status_press(KEY_T); status_press(KEY_JOYSTICK_BUTTON_14); ReadPlayerGameInput(&strategy);
+    check(status_announcements == 1 && !tracker_announcements && !DebouncedKeyboardInput[KEY_H] &&
+          !DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9] && !DebouncedKeyboardInput[KEY_T] &&
+          !DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14],
+          "status wins simultaneous status/tracker presses and consumes every eligible edge");
+    ReadPlayerGameInput(&strategy);
+    memset(DebouncedKeyboardInput, 0, sizeof(DebouncedKeyboardInput));
+    ReadPlayerGameInput(&strategy);
+    check(status_announcements == 1 && !tracker_announcements,
+          "simultaneous presses leave no tracker announcement queued for another read or held frame");
+    KeyboardInput[KEY_JOYSTICK_BUTTON_14] = 0; ReadPlayerGameInput(&strategy);
+    status_press(KEY_JOYSTICK_BUTTON_14); ReadPlayerGameInput(&strategy);
+    check(tracker_announcements == 1, "a fresh tracker press works after a status-priority read");
+    tracker_setup(); MarineInputPrimaryConfig.Jump = KEY_T;
+    status_press(KEY_H); status_press(KEY_T); status_press(KEY_JOYSTICK_BUTTON_14);
+    ReadPlayerGameInput(&strategy);
+    check(status_announcements == 1 && !tracker_announcements && player.Mvt_InputRequests.Flags.Rqst_Jump &&
+          DebouncedKeyboardInput[KEY_T] && !DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14],
+          "status priority consumes only fallback tracker edges and preserves custom tracker actions");
+    tracker_setup(); MarineInputPrimaryConfig.Jump = KEY_H;
+    status_press(KEY_H); status_press(KEY_T); ReadPlayerGameInput(&strategy);
+    check(tracker_announcements == 1 && !status_announcements && player.Mvt_InputRequests.Flags.Rqst_Jump &&
+          DebouncedKeyboardInput[KEY_H] && !DebouncedKeyboardInput[KEY_T],
+          "a custom-bound status key does not suppress an eligible tracker request");
+    setup();
+}
+
 #include "test_marine_preset.c"
 
 int main(int argc, char **argv)
@@ -249,6 +383,7 @@ int main(int argc, char **argv)
     else {
         input_tests();
         status_input_tests();
+        tracker_input_tests();
         failures += RunMarinePresetTests();
     }
     printf("gameplay input: %d failed assertion(s)\n", failures);

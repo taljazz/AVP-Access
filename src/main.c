@@ -8,6 +8,7 @@
 #include "acc_speech.h"
 #include "access/acc_media.h"
 #include "access/acc_pad.h"
+#include "access/acc_tracker.h"
 #include "oglfunc.h"
 
 #if !defined(_MSC_VER)
@@ -1823,6 +1824,7 @@ if (AvP_MainMenus())
 					SoundSys_StopAll();
 				}
 			} else {
+				AccTracker_ResetHUD();
 				ReadUserInput();
 				
 				SoundSys_Management();

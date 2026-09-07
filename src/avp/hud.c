@@ -24,6 +24,7 @@
 
 #include "psnd.h"
 #include "acc_speech.h"
+#include "acc_tracker.h"
 #include "psndplat.h"
 #include "dynamics.h"
 
@@ -51,6 +52,7 @@
 #include "pldnet.h"
 #include "avp_userprofile.h"
 #include "hud.h"
+#include "iofocus.h"
 #include "chnkload.h"
 
 extern int ScanDrawMode;
@@ -97,6 +99,8 @@ static int MTDelayBetweenScans=0;
 static BLIP_TYPE MotionTrackerBlips[MOTIONTRACKER_MAXBLIPS];
 static int NoOfMTBlips=0;
 static int MTSoundHandle=SOUND_NOACTIVEINDEX;
+static char MTDistanceNotLocked=1;
+static int MTDistance=0;
 int predHUDSoundHandle=SOUND_NOACTIVEINDEX;
 
 static int HUD_PrimaryRounds;
@@ -153,7 +157,7 @@ static void DisplayMarinesAmmo(void);
 
 
 static void DoMotionTracker(void);
-static int DoMotionTrackerBlips(void);
+static int DoMotionTrackerBlips(VECTORCH *nearestPosition);
 
 static void HandleMarineWeapon(void);
 static void AimGunSight(int aimingSpeed, TEMPLATE_WEAPON_DATA *twPtr);
@@ -183,8 +187,21 @@ int Fast2dMagnitude(int dx, int dy);
 /*KJL****************************************************************************************
 *                                     F U N C T I O N S	                                    *
 ****************************************************************************************KJL*/
-void InitHUD(void)						 
+void AccTracker_ResetHUD(void)
 {
+	AccTracker_Reset();
+	NoOfMTBlips=0;
+	MTScanLineSize=PreviousMTScanLineSize=MOTIONTRACKER_SMALLESTSCANLINESIZE;
+	MTDelayBetweenScans=0;
+	MTDistanceNotLocked=1;
+	MTDistance=0;
+	if (MTSoundHandle!=SOUND_NOACTIVEINDEX) Sound_Stop(MTSoundHandle);
+	MTSoundHandle=SOUND_NOACTIVEINDEX;
+}
+
+void InitHUD(void)
+{
+	AccTracker_ResetHUD();
 	switch(AvP.PlayerType)
 	{
 		case I_Marine:
@@ -208,6 +225,7 @@ void InitHUD(void)
 
 void KillHUD(void)
 {
+	AccTracker_ResetHUD();
 	switch(AvP.PlayerType)
 	{
 		case I_Marine:
@@ -269,6 +287,7 @@ static void InitAlienHUD(void)
 
 void ReInitHUD(void)
 {
+	AccTracker_ResetHUD();
 	/* KJL 14:21:33 17/11/98 - Alien */
 	AlienTeethOffset = 0;
 	AlienTongueOffset = 0;
@@ -294,7 +313,13 @@ void ReInitHUD(void)
 void MaintainHUD(void)
 {
 	PLAYER_STATUS *playerStatusPtr= (PLAYER_STATUS *) (Player->ObStrategyBlock->SBdataptr);
+	int trackerActive;
 	GLOBALASSERT(playerStatusPtr);
+	trackerActive = AvP.PlayerType==I_Marine && playerStatusPtr->IsAlive
+		&& !Observer && !playerStatusPtr->MyFaceHugger
+		&& CurrentVisionMode==VISION_MODE_NORMAL && !playerStatusPtr->DemoMode && !AvP.LevelCompleted
+		&& !InGameMenusAreRunning() && IOFOCUS_AcceptControls();
+	if (!trackerActive) AccTracker_ResetHUD();
 
 //	RenderSmokeTest();
 	PlatformSpecificEnteringHUD();
@@ -358,7 +383,7 @@ void MaintainHUD(void)
 			{
 				HandleMarineWeapon();
 
-	  	 	 	if (CurrentVisionMode==VISION_MODE_NORMAL) DoMotionTracker();
+				if (trackerActive) DoMotionTracker();
 
 				CheckWireFrameMode(0);
 				//flash health if invulnerable
@@ -592,35 +617,34 @@ void DoCompletedLevelStatisticsScreen(void)
 */
 static void DoMotionTracker(void)
 {
- 	static char distanceNotLocked=1;
-	static int distance=0;
+	VECTORCH nearestPosition;
 	
 	/* draw static motion tracker background, and the moving scanline */
 	BLTMotionTrackerToHUD(MTScanLineSize);
   	
-	if(distanceNotLocked) /* if MT hasn't found any contacts this scan */
+	if(MTDistanceNotLocked) /* if MT hasn't found any contacts this scan */
 	{
-		int nearestDistance=DoMotionTrackerBlips();
+		int nearestDistance=DoMotionTrackerBlips(&nearestPosition);
 		
    		if (nearestDistance<MOTIONTRACKER_RANGE) /* if picked up some blips */
 		{
-			distance=nearestDistance;
-			distanceNotLocked=0;
+			MTDistance=nearestDistance;
+			MTDistanceNotLocked=0;
 
 			if (MTSoundHandle==SOUND_NOACTIVEINDEX)
 			{
 				int panicFactor = MUL_FIXED(nearestDistance,MOTIONTRACKER_SCALE);
 				if (panicFactor < 21845)
 				{
-					Sound_Play(SID_TRACKER_WHEEP_HIGH,"ev",&MTSoundHandle,MOTIONTRACKERVOLUME);
+					AccTracker_PlayContact(SID_TRACKER_WHEEP_HIGH,&nearestPosition,MOTIONTRACKER_RANGE,&MTSoundHandle,MOTIONTRACKERVOLUME);
 				}
 				else if (panicFactor < 21845*2)
 				{
-					Sound_Play(SID_TRACKER_WHEEP,"ev",&MTSoundHandle,MOTIONTRACKERVOLUME);
+					AccTracker_PlayContact(SID_TRACKER_WHEEP,&nearestPosition,MOTIONTRACKER_RANGE,&MTSoundHandle,MOTIONTRACKERVOLUME);
 				}
 				else
 				{
-					Sound_Play(SID_TRACKER_WHEEP_LOW,"ev",&MTSoundHandle,MOTIONTRACKERVOLUME);
+					AccTracker_PlayContact(SID_TRACKER_WHEEP_LOW,&nearestPosition,MOTIONTRACKER_RANGE,&MTSoundHandle,MOTIONTRACKERVOLUME);
 				}
 			}
 
@@ -641,14 +665,14 @@ static void DoMotionTracker(void)
 		}
 		else if (NoOfMTBlips==0) /* if the MT is blank, cycle the distance digits */
 		{
-			distance= MUL_FIXED(MTScanLineSize,MOTIONTRACKER_RANGE);
+			MTDistance= MUL_FIXED(MTScanLineSize,MOTIONTRACKER_RANGE);
  		}
 	}
-	else DoMotionTrackerBlips();
+	else DoMotionTrackerBlips(NULL);
 	
 	/* evaluate the distance digits */
 	{
-    	int value=distance/10;
+		int value=MTDistance/10;
         ValueOfHUDDigit[MARINE_HUD_MOTIONTRACKER_UNITS]=value%10;
 		
 		value/=10;						  
@@ -671,7 +695,7 @@ static void DoMotionTracker(void)
 			Sound_Play(SID_TRACKER_CLICK,"v",MOTIONTRACKERVOLUME);
 
 			PreviousMTScanLineSize =MTScanLineSize=MOTIONTRACKER_SMALLESTSCANLINESIZE;
-			distanceNotLocked=1; /* allow MT to look for a new nearest contact distance */
+			MTDistanceNotLocked=1; /* allow MT to look for a new nearest contact distance */
 		}
 	}
 	else
@@ -748,6 +772,17 @@ static void DoMotionTracker(void)
 		}
 	}
 
+	/* Publish only surviving blip snapshots; never retain a world object pointer. */
+	{
+		ACC_TRACKER_CONTACT contacts[MOTIONTRACKER_MAXBLIPS];
+		int i;
+		for (i=0; i<NoOfMTBlips; ++i)
+		{
+			contacts[i].x=MotionTrackerBlips[i].X;
+			contacts[i].z=MotionTrackerBlips[i].Y;
+		}
+		AccTracker_SetContacts(contacts,NoOfMTBlips,MOTIONTRACKER_RANGE);
+	}
 	return;
 }
 
@@ -808,7 +843,7 @@ int ObjectShouldAppearOnMotionTracker(STRATEGYBLOCK *sbPtr)
 
 	return 1;
 }
-static int DoMotionTrackerBlips(void)
+static int DoMotionTrackerBlips(VECTORCH *nearestPosition)
 {
 	DYNAMICSBLOCK *playerDynPtr = Player->ObStrategyBlock->DynPtr;
 	int numberOfObjects = NumActiveStBlocks;
@@ -868,7 +903,11 @@ static int DoMotionTrackerBlips(void)
 					 	  ||(radius<PreviousMTScanLineSize && prevRadius>PreviousMTScanLineSize))
 						{						
 							/* remember distance for possible display on HUD */
-							if (nearestDistance>dist) nearestDistance=dist;
+							if (nearestDistance>dist)
+							{
+								nearestDistance=dist;
+								if (nearestPosition) *nearestPosition=objectDynPtr->Position;
+							}
 
 							/* create new blip */
 				//			MotionTrackerBlips[NoOfMTBlips].X = x;

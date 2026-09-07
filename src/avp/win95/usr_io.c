@@ -11,6 +11,7 @@
 #include "inline.h"
 
 #include "stratdef.h"
+#include "dynblock.h"
 #include "gamedef.h"
 #include "gameplat.h"
 
@@ -30,6 +31,7 @@
 #include "avp_menus.h"
 #include "acc_pad.h"
 #include "acc_status.h"
+#include "acc_tracker.h"
 #include <SDL3/SDL_timer.h>
 #include <stdio.h>
 #include <string.h>
@@ -972,9 +974,9 @@ static void AccPad_TraceGameInput(const PLAYER_STATUS *player,
 	previousAxes = axes;
 }
 
-/* Status shortcuts are fallbacks: an explicit player binding always wins.
+/* Readout shortcuts are fallbacks: an explicit player binding always wins.
    Ignore the reserved expansion bytes at the end of the configuration. */
-static int AccStatus_KeyIsBound(int key, const PLAYER_INPUT_CONFIGURATION *primary,
+static int AccAccess_KeyIsBound(int key, const PLAYER_INPUT_CONFIGURATION *primary,
     const PLAYER_INPUT_CONFIGURATION *secondary)
 {
 	const unsigned char *p = (const unsigned char *)primary;
@@ -985,24 +987,34 @@ static int AccStatus_KeyIsBound(int key, const PLAYER_INPUT_CONFIGURATION *prima
 	return 0;
 }
 
-static void AccStatus_CheckRequest(const PLAYER_STATUS *player,
+static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSBLOCK *dynamics,
     const PLAYER_INPUT_CONFIGURATION *primary,
     const PLAYER_INPUT_CONFIGURATION *secondary)
 {
-	int keyboard, gamepad;
+	int statusKeyboard, statusGamepad, trackerKeyboard, trackerGamepad;
 	if (AvP.PlayerType != I_Marine || !player->IsAlive || player->DemoMode
 	    || AvP.LevelCompleted || !IOFOCUS_AcceptControls() || InGameMenusAreRunning()) return;
-	keyboard = DebouncedKeyboardInput[KEY_H]
-	    && !AccStatus_KeyIsBound(KEY_H, primary, secondary);
-	gamepad = DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9]
-	    && !AccStatus_KeyIsBound(KEY_JOYSTICK_BUTTON_9, primary, secondary);
-	if (!keyboard && !gamepad) return;
+	statusKeyboard = DebouncedKeyboardInput[KEY_H]
+	    && !AccAccess_KeyIsBound(KEY_H, primary, secondary);
+	statusGamepad = DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9]
+	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_9, primary, secondary);
+	trackerKeyboard = DebouncedKeyboardInput[KEY_T]
+	    && !AccAccess_KeyIsBound(KEY_T, primary, secondary);
+	trackerGamepad = DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14]
+	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_14, primary, secondary);
+	if (!statusKeyboard && !statusGamepad
+	    && ((!trackerKeyboard && !trackerGamepad) || !dynamics)) return;
 
 	/* Consume only our unbound shortcuts so another read in this same frame
 	   cannot repeat the announcement. Leave custom gameplay bindings intact. */
-	if (keyboard) DebouncedKeyboardInput[KEY_H] = 0;
-	if (gamepad) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9] = 0;
-	AccStatus_AnnounceMarine(player);
+	if (statusKeyboard) DebouncedKeyboardInput[KEY_H] = 0;
+	if (statusGamepad) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9] = 0;
+	if (trackerKeyboard) DebouncedKeyboardInput[KEY_T] = 0;
+	if (trackerGamepad) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14] = 0;
+	/* Status wins simultaneous requests; consume the tracker edges too so a
+	   second input read cannot queue another interruption from the same press. */
+	if (statusKeyboard || statusGamepad) AccStatus_AnnounceMarine(player);
+	else AccTracker_Announce(&dynamics->Position, dynamics->OrientEuler.EulerY);
 }
 
 /* This function maps raw inputs onto the players movement attributes in
@@ -1790,7 +1802,7 @@ void ReadPlayerGameInput(STRATEGYBLOCK* sbPtr)
 	}
 	#endif
 	if (DebouncedKeyboardInput[KEY_GRAVE]) IOFOCUS_Toggle();
-	AccStatus_CheckRequest(playerStatusPtr, primaryInput, secondaryInput);
+	AccAccess_CheckRequests(playerStatusPtr, sbPtr->DynPtr, primaryInput, secondaryInput);
 	AccPad_TraceGameInput(playerStatusPtr, primaryInput, secondaryInput);
 }
 
