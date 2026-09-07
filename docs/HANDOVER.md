@@ -336,7 +336,7 @@ delay, distance lock and live cue handle. It runs from HUD init/reinit/kill,
 pause, and inactive tracker frames. Tracker activity requires an alive Marine,
 normal vision, game input focus, no menu/demo/completed level, no observer mode
 and no attached facehugger. Image intensifier therefore makes speech unavailable,
-matching the visual tracker. Live pause/resume and restart must still be checked.
+matching the visual tracker. Subsequent live transition checks are recorded below.
 
 Validation: the complete Windows build passed, as did 224 tracker-module
 assertions across 11 scenarios, 45 actual-source HUD checks, and the gameplay
@@ -351,8 +351,8 @@ direction or loudness. The user subsequently confirmed that the tracker readout
 works. The live trace shows repeated requests reaching NVDA with "No tracker
 contacts ahead." This verifies the shortcut and audible empty-tracker response;
 subsequent guided listening and actual-contact verification are recorded below.
-Tracker pause/intensifier/restart transitions still need live verification. Prior
-Marine status is already user-confirmed above.
+Subsequent tracker transition checks are recorded below. Prior Marine status
+is already user-confirmed above.
 
 ### Guided tracker listening diagnostic — 2026-09-07
 
@@ -396,8 +396,7 @@ verification with a real level contact is recorded in the following section.
 
 Run `tests\tracker\run_listening_tests.bat` for the diagnostic controls/timing
 checks and `tools\run.bat -w --padtrace --trackertest`
-for the guided listening test. Tracker lifecycle transitions remain separate
-live checks listed in section 8.
+for the guided listening test. Live tracker transition results follow below.
 
 ### Real Marine tracker contact — 2026-09-07
 
@@ -421,8 +420,40 @@ tracker failure. The spawn also requires the Alien model already loaded by the
 level; missing-model errors are a different failure. No engine changes were needed
 for this test. Close the console and keep normal vision enabled before scanning.
 
-Remaining tracker checks are pause/resume, image-intensifier off/on and restart
-transitions. The first-contact success does not establish those lifecycle cases.
+A subsequent pause/intensifier/restart trial is recorded below.
+
+### Marine tracker transitions — 2026-09-07
+
+The user completed the remaining planned tracker transition checks in another
+`-w --padtrace --debug` Marine session with a real `ALIENBOT` contact:
+
+- **Pause/resume:** Start paused the game and the user confirmed the tracker beeps
+  stopped. A on Resume Game restored play; after a fresh sweep, D-pad Down gave
+  an accurate report. The trace also records fresh cue calls after resuming.
+- **Image intensifier:** D-pad Up enabled it and D-pad Down spoke "Motion tracker
+  unavailable." The user confirmed normal tracker reporting returned after
+  switching the intensifier off. The trace records the unavailable response while
+  enabled and valid "No tracker contacts ahead" responses after disabling it.
+- **Restart:** The user selected Restart Mission from the pause menu. After the
+  level restarted, D-pad Down said "No tracker contacts ahead." The user then
+  re-entered `GOD` and `ALIENBOT`, and confirmed both the spoken contact report and
+  audible tracker beeps returned, checking twice.
+
+These results confirm the tested Marine pause/resume, vision toggle and mission
+restart paths. The initial empty response after restart and successful fresh
+contact detection are separate observations. They do not establish save/load,
+lift transitions or every other inactive-player state.
+
+For repeat tests, Restart Mission is three D-pad Down presses from Resume Game
+(through Save Game and Load Game), and takes effect immediately without a
+confirmation dialog. Debug mode leaves those menu entries present. Restart
+removes the test Alien, restores normal vision and resets `GOD` off; re-enable it
+before creating another test Alien. D-pad Down navigates the pause menu, so issue
+tracker requests only after resuming, with a few seconds for a fresh sweep.
+
+No source or executable changes were needed for this validation. The existing
+automated/build results above remain applicable; this session adds user listening
+and controller observations, not another automated test run.
 
 ## 7. Debugging notes
 
@@ -444,12 +475,13 @@ transitions. The first-contact success does not establish those lifecycle cases.
 ## 8. Not yet done
 
 - Remaining live controller validation: reconnection, binding capture,
-  loading/restart prompts, and other actions/characters. Menus, Marine movement/look,
-  pause/resume, firing, jumping and interacting are user-confirmed (see §6).
-- Remaining live tracker validation: pause/resume, image-intensifier off/on and
-  restart transitions. Real contact detection, spoken bearing/distance and beeps
-  are user-confirmed, along with guided headphone direction/distance-tone checks
-  and the audible empty-tracker response.
+  loading prompts, and other actions/characters. Menus, Marine movement/look,
+  pause/resume, mission restart, firing, jumping and interacting are user-confirmed
+  (see §6).
+- Broader live tracker regression coverage, including save/load and lift
+  transitions. Core Marine contact detection, speech/beeps, headphone direction
+  and distance tones, empty responses, pause/resume, intensifier on/off and mission
+  restart are user-confirmed (see §6).
 - Remaining gameplay accessibility work: raycast sonar, status support for other
   characters, assisted targeting, and route
   guidance to objectives. §3 lists the engine
