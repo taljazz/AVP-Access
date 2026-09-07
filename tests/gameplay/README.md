@@ -11,7 +11,12 @@ the repository, set `AVP_TEST_PROJECT` to the repository root first.
 The checks cover neutral axes, movement/look direction and sensitivity, input
 focus and menu suppression, resumed movement, button actions/releases, and the
 pause-menu hook. These exercise `ReadPlayerGameInput`, not a copied input formula.
-Controller-to-JOYINFOEX mapping has separate coverage in `tests/controller`.
+Each of the eight stick directions is checked separately for its signed increment,
+matching request flag, idle unrelated axes, analog mode, and release. Profile
+checks cover restored legacy axis roles, missing sensitivities, and preservation
+of explicit sensitivity/inversion choices. Controller-to-JOYINFOEX mapping has
+separate coverage in `tests/controller`. These fixtures stop at input requests;
+actual movement and camera behavior are also checked in the live game.
 The same fixture also runs Marine controller-preset and legacy-profile migration
 checks from `test_marine_preset.c`, including preservation of customized bindings
 and an idempotent save/reload round trip.

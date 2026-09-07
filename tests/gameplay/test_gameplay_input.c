@@ -147,6 +147,97 @@ static void input_tests(void)
     check(menu_active, "Escape/Start press reaches the pause-menu hook");
 }
 
+
+/* Each physical stick direction has an independent contract. The SDL-to-axis
+   boundary is covered in tests/controller; this fixture calls real usr_io.c.
+   Full engine position/camera integration still needs the live game check. */
+static unsigned int direction_flags(void)
+{
+    return (player.Mvt_InputRequests.Flags.Rqst_Forward ? 1u : 0u)
+        | (player.Mvt_InputRequests.Flags.Rqst_Backward ? 2u : 0u)
+        | (player.Mvt_InputRequests.Flags.Rqst_SideStepLeft ? 4u : 0u)
+        | (player.Mvt_InputRequests.Flags.Rqst_SideStepRight ? 8u : 0u)
+        | (player.Mvt_InputRequests.Flags.Rqst_TurnLeft ? 16u : 0u)
+        | (player.Mvt_InputRequests.Flags.Rqst_TurnRight ? 32u : 0u)
+        | (player.Mvt_InputRequests.Flags.Rqst_LookUp ? 64u : 0u)
+        | (player.Mvt_InputRequests.Flags.Rqst_LookDown ? 128u : 0u);
+}
+
+static void individual_stick_directions(void)
+{
+    static const struct {
+        const char *name;
+        DWORD x, y, u, v;
+        int move, strafe, turn, pitch;
+        unsigned int flags;
+    } cases[] = {
+        {"left stick forward",  32768, 16384, 32768, 32768, 32768, 0, 0, 0, 1u},
+        {"left stick backward", 32768, 49152, 32768, 32768, -32768, 0, 0, 0, 2u},
+        {"left stick left",     16384, 32768, 32768, 32768, 0, -32768, 0, 0, 4u},
+        {"left stick right",    49152, 32768, 32768, 32768, 0, 32768, 0, 0, 8u},
+        {"right stick left",    32768, 32768, 31744, 32768, 0, 0, -32768, 0, 16u},
+        {"right stick right",   32768, 32768, 33792, 32768, 0, 0, 32768, 0, 32u},
+        {"right stick up",      32768, 32768, 32768, 31744, 0, 0, 0, -32768, 64u},
+        {"right stick down",    32768, 32768, 32768, 33792, 0, 0, 0, 32768, 128u}
+    };
+    int i;
+    char description[160];
+    for (i = 0; i < (int)(sizeof(cases) / sizeof(cases[0])); ++i) {
+        setup();
+        JoystickData.dwXpos = cases[i].x;
+        JoystickData.dwYpos = cases[i].y;
+        JoystickData.dwUpos = cases[i].u;
+        JoystickData.dwVpos = cases[i].v;
+        ReadPlayerGameInput(&strategy);
+        sprintf(description, "%s produces the expected signed increment with other axes idle", cases[i].name);
+        check(player.Mvt_MotionIncrement == cases[i].move &&
+              player.Mvt_SideStepIncrement == cases[i].strafe &&
+              player.Mvt_TurnIncrement == cases[i].turn &&
+              player.Mvt_PitchIncrement == cases[i].pitch, description);
+        sprintf(description, "%s sets only its matching direction and analog mode", cases[i].name);
+        check(direction_flags() == cases[i].flags &&
+              !player.Mvt_InputRequests.Flags.Rqst_Strafe &&
+              !!player.Mvt_AnalogueTurning == !!cases[i].turn &&
+              !!player.Mvt_AnaloguePitching == !!cases[i].pitch, description);
+        neutral_axes();
+        ReadPlayerGameInput(&strategy);
+        sprintf(description, "%s release clears direction, increments, and analog modes", cases[i].name);
+        check(no_motion() && !direction_flags() &&
+              !player.Mvt_AnalogueTurning && !player.Mvt_AnaloguePitching, description);
+    }
+
+    setup();
+    JoystickControlMethods = DefaultJoystickControlMethods;
+    JoystickControlMethods.JoystickTrackerBallHorizontalSensitivity = 0;
+    JoystickControlMethods.JoystickTrackerBallVerticalSensitivity = 0;
+    AccPad_ApplyControlMethods();
+    check(JoystickControlMethods.JoystickEnabled &&
+          JoystickControlMethods.JoystickVAxisIsMovement &&
+          !JoystickControlMethods.JoystickHAxisIsTurning &&
+          JoystickControlMethods.JoystickTrackerBallEnabled &&
+          !JoystickControlMethods.JoystickFlipVerticalAxis &&
+          !JoystickControlMethods.JoystickTrackerBallFlipVerticalAxis,
+          "loading legacy defaults restores movement/strafe/look roles with normal vertical directions");
+    check(JoystickControlMethods.JoystickTrackerBallHorizontalSensitivity == 32 &&
+          JoystickControlMethods.JoystickTrackerBallVerticalSensitivity == 32,
+          "missing profile look sensitivities recover usable defaults on both axes");
+
+    JoystickControlMethods.JoystickTrackerBallHorizontalSensitivity = 12;
+    JoystickControlMethods.JoystickTrackerBallVerticalSensitivity = 20;
+    JoystickControlMethods.JoystickFlipVerticalAxis = 1;
+    JoystickControlMethods.JoystickTrackerBallFlipVerticalAxis = 1;
+    AccPad_ApplyControlMethods();
+    JoystickData.dwYpos = 16384;
+    JoystickData.dwUpos = 33792;
+    JoystickData.dwVpos = 31744;
+    ReadPlayerGameInput(&strategy);
+    check(player.Mvt_TurnIncrement == 12288 && player.Mvt_PitchIncrement == 20480,
+          "explicit custom look sensitivity and look inversion survive controller setup");
+    check(player.Mvt_MotionIncrement == -32768 && direction_flags() == (2u | 32u | 128u),
+          "explicit movement and look inversion affect only their vertical directions");
+    setup();
+}
+
 static void trace_scenario(void)
 {
     setup(); AccPadTrace = 1;
@@ -382,6 +473,7 @@ int main(int argc, char **argv)
     if (argc > 1 && !strcmp(argv[1], "trace")) trace_scenario();
     else {
         input_tests();
+        individual_stick_directions();
         status_input_tests();
         tracker_input_tests();
         failures += RunMarinePresetTests();
