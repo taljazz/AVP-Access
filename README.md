@@ -183,22 +183,27 @@ listener turned right (so it is now on the left). Near/far examples use the game
 corresponding distance tones. These examples test listening and speech; detecting
 actual gameplay contacts remains a separate check.
 
-## Controller regression checks
+## Regression checks
 
-Run `tests\controller\run_tests.bat` to compile the controller module with mocked
-SDL input and check menu press/hold/release, any-key prompts, overlapping keyboard
-input, binding capture, and disconnect/reconnect behavior. It runs without a
-controller or game window. Coverage also includes both sticks, trigger thresholds,
-all button slots, and transitions from menus to gameplay.
+Each suite compiles the *real* module against mocked engine data, so they test the
+shipping code rather than a copy of it. None needs a controller, a game window or the
+retail data. They need only MSVC and PowerShell — run `tools\env.bat` first, or let the
+runners do it.
 
-Run `tests\gameplay\run_input_tests.bat` to check actual gameplay input, menu/focus
-blocking, Marine preset migration, and custom-binding preservation. See
-`tests/controller/README.md` and `tests/gameplay/README.md` for details.
-Run `tests\status\run_tests.bat` to check spoken status against engine data,
-including percentage rounding, ammunition types, invalid state, and speech calls.
+| Suite | Covers | Checks |
+| --- | --- | ---: |
+| `tests\controller\run_tests.bat` | Menu press/hold/release, any-key prompts, overlapping keyboard input, binding capture, disconnect/reconnect, sticks, triggers, menu-to-gameplay transitions | 240 |
+| `tests\tracker\run_tests.bat` | Contact descriptions, bearing and distance boundaries, speech and spatial-audio parameters | 224 |
+| `tests\tracker\run_listening_tests.bat` | Guided listening diagnostic: examples, timing, controls, cancellation, unavailable audio, playback failure, state cleanup | 355 |
+| `tests\status\run_tests.bat` | Spoken status against engine data: percentage rounding, ammunition types, invalid state, speech calls | 89 |
+| `tests\gameplay\run_input_tests.bat` | Gameplay input, menu and focus blocking, all eight stick directions, Marine preset migration, custom-binding preservation | 82 |
+| `tests\tracker\run_hud_tests.bat` | Actual HUD detection, sweep timing, contact snapshots, resets, gameplay eligibility | 45 |
+| `tests\media\run_tests.bat` | Menu music selection and restart behaviour, media fallback when FFmpeg or a file is missing | 22 |
 
-Run `tests\tracker\run_tests.bat` for contact descriptions, bearing/distance
-boundaries, speech and spatial-audio parameters. Run
-`tests\tracker\run_hud_tests.bat` for actual HUD detection, sweep timing,
-contact snapshots, resets and gameplay eligibility. These checks use mocked
-outputs; directional listening still needs a live game test.
+Roughly 1,057 checks in total. Each suite's `README.md` has the detail.
+
+**What they do not cover.** These fixtures inspect engine call parameters, not perceived
+audio: they can confirm a cue was requested at the right position and volume, never that
+it *sounds* like it is to your left. Directional audio, speech intelligibility and
+controller feel all need a live test, and the handover records which of those a person has
+actually confirmed.

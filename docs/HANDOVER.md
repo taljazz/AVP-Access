@@ -471,6 +471,11 @@ and controller observations, not another automated test run.
   `'name.exe' is not recognized`, which reads like a failed build rather than a refusal to
   execute. The test runners hit this and appeared to fail wholesale while the tests
   themselves were fine. Always invoke built binaries with an explicit path.
+- **Keep the test suites dependent only on MSVC and PowerShell.** `tests/media` briefly
+  needed Python to extract functions from source into a fixture header; the generated
+  header is gitignored, so a machine without Python could not run that suite at all even
+  though it had everything else. Rewritten as `extract_menu.ps1`. `tests/tracker` already
+  did it this way.
 
 ## 8. Not yet done
 
