@@ -347,8 +347,12 @@ touch that path. Run `tests\tracker\run_tests.bat`,
 `tests\tracker\run_hud_tests.bat` and `tests\gameplay\run_input_tests.bat`.
 `--padtrace` records `ACCTRACKER: cue=...` and `ACCTRACKER: speech=...` for live
 diagnosis. Automated audio checks inspect engine call parameters, not perceived
-direction or loudness. User confirmation of directional audio and spoken tracker
-contacts remains pending; prior Marine status is already user-confirmed above.
+direction or loudness. The user subsequently confirmed that the tracker readout
+works. The live trace shows repeated requests reaching NVDA with "No tracker
+contacts ahead." This verifies the shortcut and audible empty-tracker response;
+spoken bearings/distances with actual contacts, directional listening, and tracker
+pause/intensifier/restart transitions still need live verification. Prior Marine
+status is already user-confirmed above.
 
 ## 7. Debugging notes
 
@@ -372,8 +376,9 @@ contacts remains pending; prior Marine status is already user-confirmed above.
 - Remaining live controller validation: reconnection, binding capture,
   loading/restart prompts, and other actions/characters. Menus, Marine movement/look,
   pause/resume, firing, jumping and interacting are user-confirmed (see §6).
-- Live verification of the new directional Marine tracker and spoken contacts,
-  including pause/resume, image intensifier and restart transitions.
+- Live verification of directional tracker beeps and spoken bearing/distance with
+  actual contacts, plus pause/resume, image intensifier and restart transitions.
+  The tracker shortcut and audible empty-tracker response are user-confirmed.
 - Remaining gameplay accessibility work: raycast sonar, status support for other
   characters, assisted targeting, and route
   guidance to objectives. §3 lists the engine
