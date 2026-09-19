@@ -42,14 +42,19 @@ or [Steam](https://store.steampowered.com/app/3730/).
 loaded dynamically so a missing `Tolk.dll` degrades to silence rather than failing to
 start.
 
-**Spoken menus.** Narration is driven by capturing the text the menu renderer actually
-draws, so every element type is announced correctly by construction — label, role and
-live value. Graphic-only entries fall back to their help string, and the profile list
-reads real profile names.
+**Spoken menus.** Narration captures rendered labels and values. The Single Player
+graphics use localized species names; profile selection reads real profile names.
+Menu titles are announced once on entry. See the handover for tested paths and limits.
 
-**Spoken game text.** Every in-game message — objectives, pickups, plot text — is
-spoken, hooked at the single point they all funnel through. Mission preludes are read
-on the level-select screens.
+**Spoken game text.** Messages passing through the on-screen-message hook are spoken.
+Mission preludes are read on the mission briefing screens. This does not establish
+speech coverage for every subtitle or text-rendering path in the game.
+
+**Objectives and message history.** During Marine gameplay, **O / D-pad Right**
+cycles visible objectives. Levels without stored descriptions say "No description
+recorded." **F1 / right-stick click (R3)** replays stored mission messages; repeat
+within four seconds to step backward. R3 is part of the default Marine preset;
+custom bindings are preserved. Empty history says "No mission messages yet."
 
 **Marine status.** During gameplay, press **H** or the Xbox **View/Back** button
 (the small button with two overlapping squares) to hear health, armor, weapon,
@@ -157,6 +162,10 @@ elsewhere invoke CMake directly.
 
 ## Diagnostics
 
+The optional [local play bridge](docs/BRIDGE.md) provides screenshots, bounded
+input commands and timestamped speech/cue logs for development. It is off during
+normal play; `tools\bridge.ps1` is its PowerShell client.
+
 Flags added for testing without having to play to the content in question:
 
 | Flag | Purpose |
@@ -200,15 +209,21 @@ runners do it.
 | Suite | Covers | Checks |
 | --- | --- | ---: |
 | `tests\controller\run_tests.bat` | Menu press/hold/release, any-key prompts, overlapping keyboard input, binding capture, disconnect/reconnect, sticks, triggers, menu-to-gameplay transitions | 240 |
-| `tests\tracker\run_tests.bat` | Contact descriptions, bearing and distance boundaries, speech and spatial-audio parameters | 224 |
+| `tests\tracker\run_tests.bat` | Contact descriptions, bearing and distance boundaries, speech, spatial-audio parameters and bridge cue scope | 225 |
 | `tests\tracker\run_listening_tests.bat` | Guided listening diagnostic: examples, timing, controls, cancellation, unavailable audio, playback failure, state cleanup | 355 |
 | `tests\status\run_tests.bat` | Spoken status against engine data: percentage rounding, ammunition types, invalid state, speech calls | 89 |
-| `tests\gameplay\run_input_tests.bat` | Gameplay input, menu and focus blocking, all eight stick directions, Marine preset migration, custom-binding preservation | 82 |
-| `tests\tracker\run_hud_tests.bat` | Actual HUD detection, sweep timing, contact snapshots, resets, gameplay eligibility | 45 |
+| `tests\gameplay\run_input_tests.bat` | Gameplay input, menu and focus blocking, stick directions, Marine preset migration, custom bindings and bridge clock propagation | 86 |
+| `tests\tracker\run_hud_tests.bat` | Actual HUD detection, sweep timing, contact snapshots, independent sonar/objective resets, gameplay eligibility and scan-click logging | 49 |
 | `tests\sonar\run_tests.bat` | Space shape naming, sector openings, distance rounding, ping schedule and reset, with the raycast mocked to build synthetic rooms | 37 |
 | `tests\media\run_tests.bat` | Menu music selection and restart behaviour, media fallback when FFmpeg or a file is missing | 22 |
+| `tests\objectives\run_tests.bat` | Objective wording, missing descriptions, cycling and reset | 18 |
+| `tests\bridge\run_tests.bat` | Commands, bounded input runner, turns, JSON, PNG encoding and independent image decoding | 166 |
+| `tests\bridge\run_runtime_tests.bat` | Actual filesystem failures/locks, retained replies/events, held-close cleanup, PowerShell client sequencing and timeout handling | 43 |
+| `tests\history\run_tests.bat` | Empty and populated history, browsing/expiry, bounded formatting and save-block validation | 21 |
+| `tests\menu\run_tests.bat` | Species labels, capture boundaries, menu transitions, duplicate suppression, profiles and briefing assembly | 13 |
 
-Roughly 1,094 checks in total. Each suite's `README.md` has the detail.
+Counts mix scenario assertions and parameter sweeps; consult each runner's output
+for its exact result. The review and remaining validation gaps are in the handover.
 
 **What they do not cover.** These fixtures inspect engine call parameters, not perceived
 audio: they can confirm a cue was requested at the right position and volume, never that

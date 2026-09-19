@@ -524,6 +524,149 @@ change that the sweep tells them what the space is. Not yet exercised: lifts and
 moving geometry, very large open rooms, and whether the generous open-sector rule
 holds up across the whole campaign.
 
+### Existing-feature review — 2026-09-19
+
+The current priority is refining existing accessibility before adding route
+guidance or other features. This section supersedes earlier claims about complete
+menu coverage and shared tracker/sonar/objective lifecycles.
+
+Changes made during this review:
+
+- Fixed ungrouped `if ... echo ... & exit` in `tools/env.bat` and `tools/run.bat`,
+  which could return before setup/launch even when the condition was false.
+  Fixed the equivalent `goto` guard hiding the missing-Tolk notice in staging.
+  The launcher now preserves the game's exit code. `run.bat --help` was exercised.
+- Single Player graphics now use the destination's localized species name.
+  The shipped help strings were the same general instruction for all species;
+  the earlier fallback did not identify the selection. Live logs now show
+  Alien, Marine, Predator at positions 1, 2, 3.
+- Capture ends after each rendered element and is cleared on menu setup, avoiding
+  unrelated rendered text and prior-menu labels. The comparison cache omits the
+  one-time menu title, eliminating the next-frame duplicate interruption.
+- The briefing accessor now recognizes the actual BASIC/BONUS mission briefing
+  screens. Previously it recognized episode selectors, where briefing data was
+  blank. The basic Marine briefing was visually compared with its complete
+  speech-request log after the fix.
+- Objective cycling no longer resets whenever the tracker becomes unavailable.
+  InitHUD, ReInitHUD and KillHUD reset the cursor; ordinary pause/vision tracker
+  resets preserve it. Sonar is no longer canceled by intensifier mode alone.
+- Repaired tracker/gameplay fixtures for the bridge's new dependencies and added
+  cue-scope/clock assertions. Added focused menu regression fixtures.
+- Bridge decimal parsing rejects overflow before multiplication on Windows and
+  rejects trailing empty keys. Screenshot writes check I/O failure. Switching
+  to step mode accounts for preceding real time. The held-time loop now honors
+  queued window-close/quit events instead of merely pumping them.
+
+Objectives and history from the earlier unfinished work remain included:
+O / D-pad Right cycles visible objectives and explicitly reports missing text;
+F1 / R3 requests stored mission-message history. Default-pad migration fills R3
+only for matching older defaults, preserving custom configurations. The opening
+Marine objective was verified live as one incomplete objective with no description.
+R3 produced no speech in the tested opening state: no stored history was present.
+Replay of populated history and old-profile migration still need live validation.
+
+Verification evidence:
+
+- Controller, tracker, listening diagnostic, status, gameplay input, tracker HUD,
+  sonar, media, objectives and bridge runners passed this review. HUD has 48
+  checks; bridge has 161 C assertions plus five independent PNG decode checks.
+  The new menu suite passed 13 assertions across seven cases and documents its
+  mocked boundaries in `tests/menu/README.md` (11 runners passed overall).
+- The executable rebuilt successfully. A rebuild that recompiled main/frontend
+  also reported existing C4700 NewWidth/NewHeight warnings and C4090 const mismatch;
+  this is not a warning-free-build claim.
+- Live bridge sessions captured profile selection, all three species, briefing,
+  intro movie frames, loading and Marine gameplay. A 200 ms forward command changed
+  player position; a requested 30-degree turn reported 31 degrees, with updated
+  screenshots. Quit commands closed the launched processes.
+- With intensifier active, sonar emitted three accepted sound starts at simulation
+  times 25173, 25673 and 26173 ms. Logs included source, sample, volume, pitch,
+  position, horizontal distance and bearing. Tests were muted: no new claims about
+  perceived direction, NVDA clarity or controller feel are made.
+- Local screenshots/logs are under sibling `build/review-2026-09-19/`, outside git.
+  No retail assets are included in source changes. No commit/push during this review.
+
+Remaining refinement work before new gameplay features:
+
+1. User listening check of corrected species labels, briefing and sonar with
+   intensifier. Check populated message history, profile editing and reconnect.
+2. Sonar labels remain a nine-ray heuristic: an eye-height clear ray does not prove
+   a walkable route; mixed wall/open sectors currently play the wall tone. Preserve
+   the user-confirmed behavior until a targeted observation supports changing it.
+3. Bridge runtime is experimental. A repository client does not exist yet;
+   the review used a temporary local client and corrected the header's stale claim.
+   Speech events are requests (also logged when muted), sound events are accepted
+   engine starts, and `t` is simulated time in step mode. These are not measured
+   speaker/NVDA onset times. Sound stops, FFmpeg voiceovers, and every native tracker
+   scan click are not all captured by the accessibility-only event filter.
+4. Validate held-time OS-close behavior live, bridge file-I/O failure recovery,
+   populated history, save/load, moving geometry, and the remaining subtitle paths.
+   Core parser/runner tests do not establish all of the engine integration behavior.
+
+### History and bridge refinement — 2026-09-19, follow-up
+
+User said the preceding review looked good and asked to proceed. This is not
+recorded as a specific new listening result. Work remained on existing features.
+
+F1 and R3 now respond "No mission messages yet." when history is empty. Both
+were exercised against the actual opening Marine level and emitted that speech
+request through the existing on-screen message hook. New messages become
+immediately reviewable; browsing still goes newest-first with a four-second
+timeout. History formatting is bounded and save-block metadata is validated
+before copying; the stored format remains unchanged. Populated replay/load is
+covered by fixtures, not yet by a newly observed campaign message in live play.
+
+The bridge now retains a failed reply and its unreported events, releases held
+input, retries publication once per second, and blocks the next command until
+publication succeeds. It preserves the prior complete reply instead of deleting
+it during a sharing violation. Commands are consumed before execution to prevent
+repeated movement on a deletion failure. Oversized or embedded-NUL commands are
+rejected instead of executing a truncated prefix. Parser errors retain a valid
+sequence number even when later tokenization fails. Startup requires writable
+event and readiness files; readiness is published atomically and removed on normal
+exit. Native tracker scan clicks now carry the tracker log tag too.
+
+`tools/bridge.ps1` is now the repository client; see `docs/BRIDGE.md`. It serializes
+cooperating clients and retains pending-command metadata after a timeout so the
+next invocation cannot silently resubmit movement. Use one game per directory.
+
+Verification:
+
+- Bridge core: 161 C assertions plus five independent image decode assertions.
+- Bridge runtime: 31 checks using actual SDL filesystem operations/Windows locks
+  and mocked engine boundaries; queued SDL quit while time is held releases input.
+- Client: 12 PowerShell checks against that headless runtime fixture, covering
+  serialization, timeout protection, sequence/error matching and quit. The helper
+  is named avp.exe for process validation but is not a retail game session.
+- Tracker HUD: 49 checks including native scan-click tagging.
+- History: 21 checks for empty/newest/backward/wrap/expiry behavior, reset,
+  bounded long text, valid save round-trip and rejected malformed metadata.
+  Final integration: all 13 runners passed and the executable rebuilt successfully.
+- A live startup with a regular file in place of the requested bridge directory
+  exited with code 1 and an explicit startup error before opening gameplay.
+- In a live Marine session, locking reply.json caused a client timeout; a following
+  movement request was refused. Unlocking allowed recovery, with simulation frame
+  15 and player position unchanged. Quit returned successfully, the owned process
+  exited, and ready.json was removed. Logs/screenshots are in sibling
+  `build/refinement-2026-09-19/`, outside git.
+
+Remaining limits: simulated timestamps are not measured audible onset. FFmpeg
+voiceover and sound-stop/completion events are still outside this event stream.
+The close path was tested through the SDL queue, not a new physical window-close
+test. Full save/load, populated campaign-message replay, controller reconnect,
+moving geometry and all subtitle paths still need live coverage. Bridge log write
+failures after successful startup are not a durability guarantee for events.jsonl;
+the reply ring is bounded. No route-guidance feature was added in this pass.
+
+### User confirmation and publication — 2026-09-19
+
+After the refinement pass, the user reported "everything works" and explicitly
+authorized committing and pushing to `origin/main` (`taljazz/AVP-Access`). This is
+general user confirmation, not a separate recorded result for every outstanding
+live-test case above. The source, tests, tools and documentation are included;
+retail data, built executables and local screenshots/logs are excluded. Pre-existing
+local clang-tidy/configure tooling edits remain outside this accessibility commit.
+
 ## 7. Debugging notes
 
 - Get real exit codes by running through a `.bat` that echoes `%ERRORLEVEL%`; PowerShell's

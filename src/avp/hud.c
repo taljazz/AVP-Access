@@ -26,6 +26,8 @@
 #include "acc_speech.h"
 #include "acc_tracker.h"
 #include "acc_sonar.h"
+#include "acc_objectives.h"
+#include "acc_bridge.h"
 #include "psndplat.h"
 #include "dynamics.h"
 
@@ -188,12 +190,8 @@ int Fast2dMagnitude(int dx, int dy);
 /*KJL****************************************************************************************
 *                                     F U N C T I O N S	                                    *
 ****************************************************************************************KJL*/
-void AccTracker_ResetHUD(void)
+static void ResetMotionTrackerHUD(void)
 {
-	/* The sonar sweep has the same lifecycle as the tracker: anything that
-	   invalidates tracker state (level change, death, pause, vision mode)
-	   equally invalidates a sweep still playing out. */
-	AccSonar_Reset();
 	AccTracker_Reset();
 	NoOfMTBlips=0;
 	MTScanLineSize=PreviousMTScanLineSize=MOTIONTRACKER_SMALLESTSCANLINESIZE;
@@ -204,8 +202,15 @@ void AccTracker_ResetHUD(void)
 	MTSoundHandle=SOUND_NOACTIVEINDEX;
 }
 
+void AccTracker_ResetHUD(void)
+{
+	AccSonar_Reset();
+	ResetMotionTrackerHUD();
+}
+
 void InitHUD(void)
 {
+	AccObjectives_Reset();
 	AccTracker_ResetHUD();
 	switch(AvP.PlayerType)
 	{
@@ -230,6 +235,7 @@ void InitHUD(void)
 
 void KillHUD(void)
 {
+	AccObjectives_Reset();
 	AccTracker_ResetHUD();
 	switch(AvP.PlayerType)
 	{
@@ -292,6 +298,7 @@ static void InitAlienHUD(void)
 
 void ReInitHUD(void)
 {
+	AccObjectives_Reset();
 	AccTracker_ResetHUD();
 	/* KJL 14:21:33 17/11/98 - Alien */
 	AlienTeethOffset = 0;
@@ -324,7 +331,13 @@ void MaintainHUD(void)
 		&& !Observer && !playerStatusPtr->MyFaceHugger
 		&& CurrentVisionMode==VISION_MODE_NORMAL && !playerStatusPtr->DemoMode && !AvP.LevelCompleted
 		&& !InGameMenusAreRunning() && IOFOCUS_AcceptControls();
-	if (!trackerActive) AccTracker_ResetHUD();
+	if (!trackerActive) ResetMotionTrackerHUD();
+	/* Sonar is independent of the visual tracker and intensifier. Cancel it
+	   only when gameplay is unavailable, not on every non-normal-vision frame. */
+	if (AvP.PlayerType!=I_Marine || !playerStatusPtr->IsAlive
+		|| Observer || playerStatusPtr->MyFaceHugger || playerStatusPtr->DemoMode
+		|| AvP.LevelCompleted || InGameMenusAreRunning() || !IOFOCUS_AcceptControls())
+		AccSonar_Reset();
 
 //	RenderSmokeTest();
 	PlatformSpecificEnteringHUD();
@@ -697,7 +710,9 @@ static void DoMotionTracker(void)
 		{
 			MTDelayBetweenScans=0;
 		
+			AccBridge_BeginCue("tracker", SID_TRACKER_CLICK);
 			Sound_Play(SID_TRACKER_CLICK,"v",MOTIONTRACKERVOLUME);
+			AccBridge_EndCue();
 
 			PreviousMTScanLineSize =MTScanLineSize=MOTIONTRACKER_SMALLESTSCANLINESIZE;
 			MTDistanceNotLocked=1; /* allow MT to look for a new nearest contact distance */

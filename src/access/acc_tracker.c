@@ -5,6 +5,7 @@
 #include "acc_tracker.h"
 #include "acc_speech.h"
 #include "acc_pad.h"
+#include "acc_bridge.h"
 
 #include <limits.h>
 #include <math.h>
@@ -101,9 +102,13 @@ void AccTracker_PlayContact(int sound, const struct vectorch *position,
 {
     SOUND3DDATA data;
     int spatialVolume;
+    /* Labelled for the play bridge; a feature playing through here (the
+       sonar) keeps its own label. */
+    AccBridge_BeginCue("tracker", sound);
     if (!position || !Global_VDB_Ptr || range <= 0 || range > INT_MAX / 3) {
         /* Keep the old cue when a spatial listener is unavailable. */
         Sound_Play((SOUNDINDEX)sound, "ev", handle, volume);
+        AccBridge_EndCue();
         return;
     }
     memset(&data, 0, sizeof(data));
@@ -119,6 +124,7 @@ void AccTracker_PlayContact(int sound, const struct vectorch *position,
     spatialVolume = (volume * VOLUME_PLAT2DSCALE) >> 7;
     /* 'm' prevents this new 3D feedback source from altering Marine AI hearing. */
     Sound_Play((SOUNDINDEX)sound, "nevm", &data, handle, spatialVolume);
+    AccBridge_EndCue();
     if (AccPadTrace) {
         fprintf(stderr, "ACCTRACKER: cue=%d contact=(%d,%d) volume=%d\n",
                 sound, position->vx, position->vz, spatialVolume);

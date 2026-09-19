@@ -30,6 +30,14 @@ void AccSpeech_Sayf(int interrupt, const char *fmt, ...);
 
 void AccSpeech_Silence(void);
 
+/* Receives every line passed to AccSpeech_Say, with or without a backend --
+   the play bridge logs speech through this. While an observer is set,
+   AccSpeech_IsAvailable() reports 1 so callers still compose their text. With
+   `suppress`, nothing reaches the screen reader, including silencing. Pass
+   NULL to remove. */
+typedef void (*ACC_SPEECH_OBSERVER)(const char *text, int interrupt);
+void AccSpeech_SetObserver(ACC_SPEECH_OBSERVER observer, int suppress);
+
 #ifdef __cplusplus
 }
 #endif

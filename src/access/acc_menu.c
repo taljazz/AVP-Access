@@ -36,6 +36,14 @@ static int  CaptureSlot = -1;
 static ACCMENU_RENDERTEXT          OrigRenderText;
 static ACCMENU_RENDERTEXT_COLOURED OrigRenderTextColoured;
 
+void AccMenu_EndCapture(void) { CaptureSlot = -1; }
+
+void AccMenu_ClearCapturedText(void)
+{
+	CaptureSlot = -1;
+	memset(CapturedText, 0, sizeof(CapturedText));
+}
+
 static void CaptureAppend(const char *textPtr)
 {
 	char *slot;
@@ -149,10 +157,23 @@ static void DescribeElementFallback(const AVPMENU_ELEMENT *e, char *out, size_t 
 	out[0] = 0;
 	if (!e) return;
 
-	/* The species entries on the Single Player menu are pictures with no text,
-	   so capture comes back empty. Their help string is a proper localised
-	   label -- "Play as an Alien" and so on -- which beats announcing the
-	   utterly useless "picture, 1 of 3". */
+	/* The shipped species help strings can all contain the same general
+	   instruction. Identify the destination, using the localized species name. */
+	if (e->ElementID == AVPMENU_ELEMENT_GOTOMENU_GFX) {
+		int id = -1;
+		const char *fallback = NULL;
+		switch (e->b.MenuToGoTo) {
+		case AVPMENU_ALIENLEVELS: id = TEXTSTRING_MULTIPLAYER_ALIEN; fallback = "Alien"; break;
+		case AVPMENU_MARINELEVELS: id = TEXTSTRING_MULTIPLAYER_MARINE; fallback = "Colonial Marine"; break;
+		case AVPMENU_PREDATORLEVELS: id = TEXTSTRING_MULTIPLAYER_PREDATOR; fallback = "Predator"; break;
+		default: break;
+		}
+		if (fallback) {
+			label = SafeTextString(id);
+			AppendStr(out, cap, label ? label : fallback);
+			return;
+		}
+	}
 	if (e->ElementID != AVPMENU_ELEMENT_GOTOMENU_GFX) {
 		label = SafeTextString((int)e->a.TextDescription);
 		if (label) { AppendStr(out, cap, label); return; }
@@ -253,7 +274,7 @@ static void BuildLine(char *line, size_t cap, int includeTitle)
 		const char *captured = (CachedSelected < ACC_MAX_ELEMENTS)
 		                     ? CapturedText[CachedSelected] : "";
 
-		if (captured && captured[0]) {
+		if (captured && captured[0] && e && e->ElementID != AVPMENU_ELEMENT_GOTOMENU_GFX) {
 			AppendStr(line, cap, captured);
 		} else if (e) {
 			char desc[ACC_ELEMENT_TEXT];
@@ -317,7 +338,9 @@ void AccMenu_Poll(int menuID, const AVPMENU_ELEMENT *elements, int numElements,
 		return;
 	}
 
-	BuildLine(line, sizeof(line), menuChanged);
+	/* Compare the item without its one-time title, otherwise the following
+	   frame interrupts the title with a duplicate item announcement. */
+	BuildLine(line, sizeof(line), 0);
 
 	/* Comparing the whole rendered line, rather than just the selection index,
 	   is what makes a toggle or slider announce its new value: the selection has
@@ -333,6 +356,7 @@ void AccMenu_Poll(int menuID, const AVPMENU_ELEMENT *elements, int numElements,
 	strncpy(LastLine, line, sizeof(LastLine) - 1);
 	LastLine[sizeof(LastLine) - 1] = 0;
 
+	if (menuChanged) BuildLine(line, sizeof(line), 1);
 	AccSpeech_Say(line, 1);
 }
 

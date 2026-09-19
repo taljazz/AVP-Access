@@ -5,6 +5,7 @@
 #include "gamedef.h"
 #include "language.h"
 #include "messagehistory.h"
+#include <stdio.h>
 
 #define MAX_NO_OF_MESSAGES_IN_HISTORY 64
 
@@ -39,19 +40,37 @@ void MessageHistory_Add(enum TEXTSTRING_ID stringID)
 		MessageHistoryStore[NumberOfEntriesInMessageHistory].Minutes = AvP.ElapsedMinutes;
 		MessageHistoryStore[NumberOfEntriesInMessageHistory].Seconds = AvP.ElapsedSeconds/65536;
 		NumberOfEntriesInMessageHistory++;
+		EntryToNextShow = NumberOfEntriesInMessageHistory;
 	}
 }
 
 void MessageHistory_DisplayPrevious(void)
 {
-	if (EntryToNextShow) 
+	if (!NumberOfEntriesInMessageHistory)
+	{
+		NewOnScreenMessage("No mission messages yet.");
+		return;
+	}
+
+	if (EntryToNextShow > NumberOfEntriesInMessageHistory)
+	{
+		EntryToNextShow = NumberOfEntriesInMessageHistory;
+	}
+
+	if (EntryToNextShow == 0)
+	{
+		EntryToNextShow = NumberOfEntriesInMessageHistory;
+	}
+
+	if (EntryToNextShow)
 	{
 		unsigned char buffer[1024];
 
 		EntryToNextShow--;
-		sprintf
+		snprintf
 		(
-			buffer,
+			(char *)buffer,
+			sizeof(buffer),
 			"%s %d (%02dh%02dm%02ds) \n \n%s",
 			GetTextString(TEXTSTRING_INGAME_MESSAGENUMBER),
 			EntryToNextShow+1,
@@ -63,7 +82,6 @@ void MessageHistory_DisplayPrevious(void)
 		NewOnScreenMessage(buffer);
 		MessageHistoryAccessedTimer = 65536*4;
 
-		if (!EntryToNextShow && NumberOfEntriesInMessageHistory) EntryToNextShow = NumberOfEntriesInMessageHistory;
 	}
 }
 
@@ -74,9 +92,10 @@ void MessageHistory_Maintain(void)
 		extern int NormalFrameTime;
 		MessageHistoryAccessedTimer -= NormalFrameTime;
 
-		if (MessageHistoryAccessedTimer<0)
+		if (MessageHistoryAccessedTimer<=0)
 		{
 			MessageHistoryAccessedTimer=0;
+			EntryToNextShow = NumberOfEntriesInMessageHistory;
 		}
 	}
 	else
@@ -110,10 +129,21 @@ void Load_MessageHistory(SAVE_BLOCK_HEADER* header)
 
 	int expected_size;
 
-	//make sure the block is the correct size
-	expected_size = sizeof(*block);
-	expected_size += sizeof(struct MessageHistory) * block->NumberOfEntriesInMessageHistory;
+	/* Validate metadata before using it to calculate or copy the payload. */
+	if (header->size < (int)sizeof(*block)) return;
+	if (block->NumberOfEntriesInMessageHistory < 0 ||
+		block->NumberOfEntriesInMessageHistory > MAX_NO_OF_MESSAGES_IN_HISTORY) return;
+	if (block->EntryToNextShow < 0 ||
+		block->EntryToNextShow > block->NumberOfEntriesInMessageHistory) return;
+	if (block->MessageHistoryAccessedTimer < 0 ||
+		block->MessageHistoryAccessedTimer > 65536*4) return;
+	expected_size = (int)sizeof(*block) +
+		(int)(sizeof(struct MessageHistory) * block->NumberOfEntriesInMessageHistory);
 	if(header->size != expected_size) return;
+	for (i = 0; i < block->NumberOfEntriesInMessageHistory; i++)
+	{
+		if (saved_message[i].StringID < 0) return;
+	}
 	
 	//load the stuff then
 	NumberOfEntriesInMessageHistory = block->NumberOfEntriesInMessageHistory;

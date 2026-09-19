@@ -25,6 +25,23 @@ static SOUNDINDEX sound_id;
 static SOUND3DDATA sound_data;
 static int *sound_handle;
 static char sound_format[32];
+static int cue_depth, cue_begins, cue_ends, cue_sound, sound_inside_cue;
+static char cue_source[24];
+
+void AccBridge_BeginCue(const char *source, int sound)
+{
+    if (cue_depth++ == 0) {
+        ++cue_begins;
+        cue_sound = sound;
+        strncpy(cue_source, source ? source : "access", sizeof(cue_source) - 1);
+        cue_source[sizeof(cue_source) - 1] = 0;
+    }
+}
+
+void AccBridge_EndCue(void)
+{
+    if (cue_depth > 0 && --cue_depth == 0) ++cue_ends;
+}
 
 int AccSpeech_IsAvailable(void) { return 1; }
 
@@ -63,6 +80,7 @@ void Sound_Play(SOUNDINDEX id, char *format, ...)
         }
     }
     va_end(args);
+    if (cue_depth > 0) sound_inside_cue = 1;
     if (sound_handle) *sound_handle = 700 + sound_calls;
 }
 
@@ -100,6 +118,8 @@ static void fixture(void)
     Global_VDB_Ptr = &view;
     view.VDB_World.vy = -3456;
     speech_calls = last_interrupt = sound_calls = AccPadTrace = 0;
+    cue_depth = cue_begins = cue_ends = sound_inside_cue = 0;
+    cue_sound = -1; cue_source[0] = 0;
     AccTracker_Reset();
 }
 
@@ -311,6 +331,9 @@ static void volumes(void)
               description);
     }
     check(sound_calls == 128, "each volume input emits exactly one contact sound");
+    check(sound_inside_cue && cue_depth == 0 && cue_begins == cue_ends &&
+          !strcmp(cue_source, "tracker") && cue_sound == SID_TRACKER_WHEEP,
+          "tracker labels playback inside a balanced bridge cue scope");
 }
 
 static void sound_fallback(void)

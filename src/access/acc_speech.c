@@ -9,6 +9,15 @@
 
 #define ACC_SPEECH_MAXLEN 4096
 
+static ACC_SPEECH_OBSERVER Observer;
+static int                 SuppressOutput;
+
+void AccSpeech_SetObserver(ACC_SPEECH_OBSERVER observer, int suppress)
+{
+	Observer = observer;
+	SuppressOutput = observer && suppress;
+}
+
 #if defined(_WIN32)
 
 #include <windows.h>
@@ -112,7 +121,11 @@ void AccSpeech_Say(const char *text, int interrupt)
 {
 	wchar_t wide[ACC_SPEECH_MAXLEN];
 
-	if (!SpeechAvailable || !text || !text[0]) return;
+	if (!text || !text[0]) return;
+
+	if (Observer) Observer(text, interrupt);
+
+	if (!SpeechAvailable || SuppressOutput) return;
 
 	/* No duplicate suppression here on purpose. The menus already compare their
 	   own rendered line before calling, and in-game messages genuinely repeat --
@@ -129,20 +142,25 @@ void AccSpeech_Say(const char *text, int interrupt)
 
 void AccSpeech_Silence(void)
 {
-	if (SpeechAvailable && pTolk_Silence) pTolk_Silence();
+	/* Silencing is the screen reader's, not just ours: while suppressed it
+	   would cut off whatever the person at the computer is listening to. */
+	if (SpeechAvailable && !SuppressOutput && pTolk_Silence) pTolk_Silence();
 	LastSpoken[0] = '\0';
 }
 
-int AccSpeech_IsAvailable(void)   { return SpeechAvailable; }
+int AccSpeech_IsAvailable(void)   { return SpeechAvailable || Observer != NULL; }
 const char *AccSpeech_Backend(void) { return BackendName; }
 
 #else /* not _WIN32 ---------------------------------------------------------- */
 
 int  AccSpeech_Init(void)          { return 0; }
 void AccSpeech_Shutdown(void)      { }
-int  AccSpeech_IsAvailable(void)   { return 0; }
+int  AccSpeech_IsAvailable(void)   { return Observer != NULL; }
 const char *AccSpeech_Backend(void){ return "none"; }
-void AccSpeech_Say(const char *text, int interrupt) { (void)text; (void)interrupt; }
+void AccSpeech_Say(const char *text, int interrupt)
+{
+	if (Observer && text && text[0]) Observer(text, interrupt);
+}
 void AccSpeech_Silence(void)       { }
 
 #endif /* _WIN32 */

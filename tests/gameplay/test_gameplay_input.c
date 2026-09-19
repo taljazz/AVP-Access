@@ -32,6 +32,33 @@ void AccTracker_Announce(const struct vectorch *value, int yaw)
     tracker_position = *value; tracker_yaw = yaw;
 }
 
+/* Sonar and objectives share the same dispatcher, so this fixture has to
+   satisfy them too. Counted, so the priority order between the four
+   accessibility shortcuts can be checked here. */
+static int sonar_requests, sonar_updates, objective_announcements;
+static int sonar_yaw;
+static unsigned int sonar_request_time, sonar_update_time;
+static int bridge_cue_depth, sonar_update_in_cue;
+static char bridge_cue_source[24];
+
+void AccSonar_Request(const struct vectorch *value, int yaw, unsigned int nowMs)
+{ (void)value; ++sonar_requests; sonar_yaw = yaw; sonar_request_time = nowMs; }
+void AccSonar_Update(unsigned int nowMs)
+{ ++sonar_updates; sonar_update_time = nowMs; if (bridge_cue_depth > 0) sonar_update_in_cue = 1; }
+void AccObjectives_Announce(void)
+{ ++objective_announcements; }
+
+unsigned int AccBridge_NowMs(void) { return (unsigned int)SDL_GetTicks(); }
+void AccBridge_BeginCue(const char *source, int sound)
+{
+    (void)sound;
+    if (bridge_cue_depth++ == 0) {
+        strncpy(bridge_cue_source, source ? source : "access", sizeof(bridge_cue_source) - 1);
+        bridge_cue_source[sizeof(bridge_cue_source) - 1] = 0;
+    }
+}
+void AccBridge_EndCue(void) { if (bridge_cue_depth > 0) --bridge_cue_depth; }
+
 OurBool IOFOCUS_AcceptControls(void) { return accepts_controls ? Yes : No; }
 void IOFOCUS_Toggle(void) { accepts_controls = !accepts_controls; }
 int InGameMenusAreRunning(void) { return menu_active; }
@@ -88,11 +115,14 @@ static void setup(void)
     memset(&AlienInputSecondaryConfig, KEY_VOID, sizeof(AlienInputSecondaryConfig));
     strategy.SBdataptr = &player; player.IsAlive = 1;
     AvP.PlayerType = I_Marine; AvP.LevelCompleted = 0; GotJoystick = 1; GotMouse = 0;
-    accepts_controls = 1; menu_active = 0;
+    accepts_controls = 1; menu_active = 0; mock_ticks = 0;
     status_announcements = 0; status_player = NULL;
     tracker_announcements = 0; tracker_player = NULL; tracker_yaw = 0;
     memset(&dynamics, 0, sizeof(dynamics));
     memset(&tracker_position, 0, sizeof(tracker_position));
+    sonar_requests = sonar_updates = objective_announcements = 0;
+    sonar_yaw = 0; sonar_request_time = sonar_update_time = 0;
+    bridge_cue_depth = sonar_update_in_cue = 0; bridge_cue_source[0] = 0;
     JoystickControlMethods = DefaultJoystickControlMethods;
     AccPad_ApplyControlMethods(); neutral_axes();
 }
@@ -466,6 +496,24 @@ static void tracker_input_tests(void)
     setup();
 }
 
+static void bridge_clock_tests(void)
+{
+    tracker_setup();
+    mock_ticks = 4321;
+    status_press(KEY_R);
+    ReadPlayerGameInput(&strategy);
+    check(sonar_requests == 1 && sonar_request_time == 4321 && sonar_yaw == 3072,
+          "sonar shortcut receives the bridge clock value and current heading");
+    check(sonar_updates == 1 && sonar_update_time == 4321,
+          "scheduled sonar update receives the same bridge clock value");
+    check(sonar_update_in_cue && bridge_cue_depth == 0 && !strcmp(bridge_cue_source, "sonar"),
+          "sonar update runs inside a balanced bridge cue scope labeled sonar");
+    mock_ticks = 9876;
+    ReadPlayerGameInput(&strategy);
+    check(sonar_updates == 2 && sonar_update_time == 9876,
+          "sonar update time advances with the SDL wall clock between input reads");
+}
+
 #include "test_marine_preset.c"
 
 int main(int argc, char **argv)
@@ -476,6 +524,7 @@ int main(int argc, char **argv)
         individual_stick_directions();
         status_input_tests();
         tracker_input_tests();
+        bridge_clock_tests();
         failures += RunMarinePresetTests();
     }
     printf("gameplay input: %d failed assertion(s)\n", failures);

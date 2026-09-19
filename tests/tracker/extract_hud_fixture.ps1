@@ -19,7 +19,7 @@ $headerEnd = $text.IndexOf('extern int ScanDrawMode;')
 $stateStart = $text.IndexOf('/* motion tracker info */')
 $stateEnd = $text.IndexOf('int predHUDSoundHandle=')
 $speed = [regex]::Match($text, '(?m)^int MotionTrackerSpeed[^\n]*\nint MotionTrackerVolume[^\n]*\n#define MOTIONTRACKERVOLUME[^\n]*')
-$gate = [regex]::Match($text, '(?s)trackerActive = AvP\.PlayerType==I_Marine.*?if \(!trackerActive\) AccTracker_ResetHUD\(\);')
+$gate = [regex]::Match($text, '(?s)trackerActive = AvP\.PlayerType==I_Marine.*?AccSonar_Reset\(\);')
 if ($headerEnd -lt 0 -or $stateStart -lt 0 -or $stateEnd -lt $stateStart -or !$speed.Success -or !$gate.Success) {
     throw 'HUD fixture source boundaries changed; review the extractor before running tests.'
 }
@@ -33,6 +33,7 @@ $pieces = @(
     $speed.Value,
     'int Fast2dMagnitude(int dx,int dy);',
     'static int DoMotionTrackerBlips(VECTORCH *nearestPosition);',
+    (Get-Function 'static void ResetMotionTrackerHUD(void)'),
     (Get-Function 'void AccTracker_ResetHUD(void)'),
     (Get-Function 'static void DoMotionTracker(void)'),
     (Get-Function 'int ObjectShouldAppearOnMotionTracker(STRATEGYBLOCK *sbPtr)'),

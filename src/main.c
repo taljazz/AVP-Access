@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 
 #include "acc_speech.h"
+#include "access/acc_bridge.h"
 #include "access/acc_media.h"
 #include "access/acc_pad.h"
 #include "access/acc_tracker.h"
@@ -135,6 +136,10 @@ static int WantIntroSequence = 1;
 static int TestPlotMessage = -1;
 static int TestPadSeconds = 0;
 static int TestTracker = 0;
+/* AVP Access: --bridge lets an outside program play; see acc_bridge.h. */
+static int WantBridge = 0;
+static int BridgeAudible = 0;
+static const char *BridgeDir = NULL;
 /* AVP Access: was 0 while the only switch (-j) also sets 0, so a controller
    could never be enabled at all. On by default; -j still turns it off. */
 static int WantJoystick = 1;
@@ -470,6 +475,11 @@ char *GetVideoModeDescription3()
 
 int InitSDL()
 {
+	/* AVP Access: a bridge session must not take keyboard focus from the
+	   screen reader the person at the computer is using. */
+	if (AccBridge_IsActive())
+		SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+
 	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
 		fprintf(stderr, "SDL Init failed: %s\n", SDL_GetError());
 		exit(EXIT_FAILURE);
@@ -1163,6 +1173,13 @@ static void handle_keypress(int key, int unicode, int press)
 	KeyboardInput[key] = press;
 }
 
+/* AVP Access: the play bridge presses keys through the keyboard's own path,
+   so menus get their key messages and the pad layer sees keyboard state. */
+void AccBridge_PlatformKey(int key, int press)
+{
+	handle_keypress(key, 0, press);
+}
+
 void CheckForWindowsMessages()
 {
 	SDL_Event event;
@@ -1324,6 +1341,10 @@ void CheckForWindowsMessages()
 	   inherit menu state from before the device was disconnected. */
 	AccMenu_DecayMenusActive();
 
+	/* AVP Access: after every device has been read, so a bridge-held key is
+	   not overwritten by the real keyboard, mouse or pad state. */
+	AccBridge_Service();
+
 //#warning Redo WantX, need to split it out better so fullscreen can temporary set relative without clobbering user setting
 	if ((KeyboardInput[KEY_LEFTALT]||KeyboardInput[KEY_RIGHTALT]) && DebouncedKeyboardInput[KEY_CR]) {
 		if (WantFullscreenToggle != 0) {
@@ -1363,7 +1384,10 @@ void CheckForWindowsMessages()
 
 	// a second reset of relative mouse state because
 	// enabling relative mouse mode moves the mouse
-	SDL_SetWindowRelativeMouseMode(window, true);
+	/* AVP Access: a bridge session runs beside someone using the computer;
+	   it needs no mouse and must not capture theirs. */
+	if (!AccBridge_IsActive())
+		SDL_SetWindowRelativeMouseMode(window, true);
         SDL_GetRelativeMouseState(NULL, NULL);
 
 	if (GotPrintScn) {
@@ -1379,6 +1403,7 @@ void InGameFlipBuffers()
 	check_for_errors();
 #endif
 
+	AccBridge_OnFlip();
 	SDL_GL_SwapWindow(window);
 }
 
@@ -1474,6 +1499,7 @@ void FlipBuffers()
 	check_for_errors();
 #endif
 
+	AccBridge_OnFlip();
 	SDL_GL_SwapWindow(window);
 }
 
@@ -1484,6 +1510,9 @@ static const struct option getopt_long_options[] = {
 { "trackertest", 0, NULL, 256 },
 { "intro", 0, NULL, 257 },
 { "skip-intro", 0, NULL, 258 },
+{ "bridge", 0, NULL, 259 },
+{ "bridge-dir", 1, NULL, 260 },
+{ "bridge-audible", 0, NULL, 261 },
 { "help",	0,	NULL,	'h' },
 { "version",	0,	NULL,	'v' },
 { "fullscreen",	0,	NULL,	'f' },
@@ -1509,6 +1538,9 @@ static const char *usage_string =
 "      [--trackertest]         Guided tracker listening examples\n"
 "      [--intro]               Play startup logos and title (default)\n"
 "      [--skip-intro]          Skip startup logos and title\n"
+"      [--bridge]              Let an outside program play (see acc_bridge.h)\n"
+"      [--bridge-dir] [x]      Use [x] for bridge files (default: bridge beside avp.exe)\n"
+"      [--bridge-audible]      Keep game sound and screen-reader speech in a bridge session\n"
 "      [-h | --help]           Display this help message\n"
 "      [-v | --version]        Display the game version\n"
 "      [-f | --fullscreen]     Run the game fullscreen\n"
@@ -1536,6 +1568,17 @@ int main(int argc, char *argv[])
 				break;
 			case 258:
 				WantIntroSequence = 0;
+				break;
+			case 259:
+				WantBridge = 1;
+				break;
+			case 260:
+				WantBridge = 1;
+				BridgeDir = optarg;
+				break;
+			case 261:
+				WantBridge = 1;
+				BridgeAudible = 1;
 				break;
 			case 'h':
 				printf("%s", usage_string);
@@ -1613,6 +1656,14 @@ int main(int argc, char *argv[])
 				WantIntroSequence = 0;
 			} else if (!strcmp(a, "--trackertest")) {
 				TestTracker = 1;
+			} else if (!strcmp(a, "--bridge")) {
+				WantBridge = 1;
+			} else if (!strcmp(a, "--bridge-dir") && i + 1 < argc) {
+				WantBridge = 1;
+				BridgeDir = argv[++i];
+			} else if (!strcmp(a, "--bridge-audible")) {
+				WantBridge = 1;
+				BridgeAudible = 1;
 			} else if (!strcmp(a, "--padtrace")) {
 				AccPadTrace = 1;
 			} else if (!strcmp(a, "--padtest")) {
@@ -1635,6 +1686,12 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "ACCPAD: startup joystickEnabled=%d\n", WantJoystick);
 	}
 	InitGameDirectories(argv[0], gamedatapath);
+
+	/* AVP Access: before speech, so the bridge hears the very first line. */
+	if (WantBridge) {
+		AccBridge_Enable(BridgeDir, BridgeAudible);
+		AccBridge_Start();
+	}
 
 	/* AVP Access: bring speech up before anything can need announcing. */
 	if (AccSpeech_Init()) {
@@ -1837,8 +1894,13 @@ if (AvP_MainMenus())
 	}
 
 	IngameKeyboardInput_ClearBuffer();
-	
+
+	AccBridge_EnterGameplay();
+
 	while(AvP.MainLoopRunning) {
+		/* AVP Access: in a bridge session, time advances only on request. */
+		AccBridge_WaitForFrame();
+
 		CheckForWindowsMessages();
 		
 		switch(AvP.GameMode) {
@@ -1910,7 +1972,9 @@ if (AvP_MainMenus())
 			RestartLevel();
 		}
 	}
-	
+
+	AccBridge_LeaveGameplay();
+
 	AvP.LevelCompleted = thisLevelHasBeenCompleted;
 
 	FixCheatModesInUserProfile(UserProfilePtr);

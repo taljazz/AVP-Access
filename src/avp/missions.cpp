@@ -622,3 +622,54 @@ void MissionObjective :: TestCompleteNext(void)
 
 		"LANDING BEACON ACTIVATED.  STAND CLEAR AND PREPARE FOR EVAC.  ", // ProjChar* pProjCh_TriggeringFeedback,
 #endif
+
+/* AVP Access ------------------------------------------------------------------
+  A C bridge onto the objective list, so the spoken readout stays plain C.
+
+  Hidden objectives are deliberately excluded: the level hides them on purpose,
+  and announcing one would give away what the player has not yet uncovered. The
+  index therefore counts visible objectives only, and callers must not assume it
+  matches the engine's internal ordering.
+  ---------------------------------------------------------------------------*/
+
+static int AccObjectives_IsVisible(MissionObjective *objective)
+{
+	MissionObjectiveState state = objective->GetMOS();
+
+	return (state != MOS_HiddenUnachieved &&
+	        state != MOS_HiddenUnachievedNotPossible);
+}
+
+extern "C" int AccObjectives_Count(void)
+{
+	int count = 0;
+
+	for (LIF<MissionObjective*> oi(&MissionObjective::GetAll()); !oi.done(); oi.next())
+		if (AccObjectives_IsVisible(oi())) count++;
+
+	return count;
+}
+
+/* Fills in the visible objective at `index`. Returns zero when the index is out
+   of range, which is also how a caller learns the list has shrunk. */
+extern "C" int AccObjectives_Get(int index, int *achieved, int *achievable,
+                                 int *stringID)
+{
+	int seen = 0;
+
+	if (index < 0) return 0;
+
+	for (LIF<MissionObjective*> oi(&MissionObjective::GetAll()); !oi.done(); oi.next()) {
+		MissionObjective *objective = oi();
+
+		if (!AccObjectives_IsVisible(objective)) continue;
+		if (seen++ != index) continue;
+
+		if (achieved)   *achieved = objective->bAchieved() ? 1 : 0;
+		if (achievable) *achievable = objective->bAchievable() ? 1 : 0;
+		if (stringID)   *stringID = (int)objective->GetDescriptionID();
+		return 1;
+	}
+
+	return 0;
+}

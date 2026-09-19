@@ -196,6 +196,15 @@
 		MissionObjectiveState GetMOS() {return MOS_Val;};
 		void SetMOS_Public(MissionObjectiveState MOS_New) {SetMOS(MOS_New);} ;
 
+		/* AVP Access: the objective list is private and the game has no
+		   objectives screen -- the text arrives once as a message and is gone.
+		   These let the spoken readout review them. */
+		enum TEXTSTRING_ID GetDescriptionID(void) const
+			{ return I_TextString_Description_Val; }
+		/* Non-const: the LIF iterator cannot be constructed over a const list. */
+		static List<MissionObjective*>& GetAll(void)
+			{ return List_pMissionObjective; }
+
 	private:
 		void SetMOS( MissionObjectiveState MOS_New  );
 

@@ -24,7 +24,10 @@ rem close a parenthesised block early.
 if defined VSROOT goto :have_vs
 for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2^>nul`) do set "VSROOT=%%i"
 :have_vs
-if not defined VSROOT echo [env] No Visual Studio with the C++ tools found. Set VSROOT.& exit /b 1
+if not defined VSROOT (
+    echo [env] No Visual Studio with the C++ tools found. Set VSROOT.
+    exit /b 1
+)
 
 rem Visual Studio ships its own CMake and Ninja, so neither needs installing.
 set "CMAKE=%VSROOT%\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
@@ -35,8 +38,14 @@ if not defined SDL3_DIR    for /d %%d in ("%TP%\SDL3-*")        do set "SDL3_DIR
 if not defined OPENAL_DIR  for /d %%d in ("%TP%\openal-soft-*") do set "OPENAL_DIR=%%d"
 if not defined FFMPEG_ROOT for /d %%d in ("%TP%\ffmpeg-*")      do set "FFMPEG_ROOT=%%d"
 
-if not defined SDL3_DIR   echo [env] SDL3 not found in %TP%. Set SDL3_DIR.& exit /b 1
-if not defined OPENAL_DIR echo [env] OpenAL Soft not found in %TP%. Set OPENAL_DIR.& exit /b 1
+if not defined SDL3_DIR (
+    echo [env] SDL3 not found. Set SDL3_DIR.
+    exit /b 1
+)
+if not defined OPENAL_DIR (
+    echo [env] OpenAL Soft not found. Set OPENAL_DIR.
+    exit /b 1
+)
 
 set "SDL3_INC=%SDL3_DIR%\include"
 set "SDL3_LIB=%SDL3_DIR%\lib\x64\SDL3.lib"

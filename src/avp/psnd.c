@@ -14,6 +14,7 @@
 
 #include "psndplat.h"
 #include "access/acc_media.h"
+#include "access/acc_bridge.h"
 #define UseLocalAssert Yes
 #include "ourasert.h"
 #include "db.h"
@@ -561,6 +562,15 @@ fprintf(stderr, "PSND: Play: %d %d %s l:%d\n", newIndex, soundNumber, GameSounds
 	/* finally, update the game sound instances, and external reference */
 	GameSounds[soundNumber].activeInstances++;
 	if(externalRef) *externalRef = newIndex;
+
+	/* AVP Access: the play bridge logs sounds that actually started, with
+	   where they were, so a cue can be checked against the player's position. */
+	{
+		const SOUND3DDATA *placed = &ActiveSounds[newIndex].threedeedata;
+		AccBridge_OnSound((int)soundNumber, GameSounds[soundNumber].wavName,
+		                  ActiveSounds[newIndex].threedee ? &placed->position : NULL,
+		                  volume, pitch, loop, placed->inner_range, placed->outer_range);
+	}
 
 /* only will happen because of savegames */
 //	if(soundStartPosition && ActiveSounds[newIndex].dsBufferP)

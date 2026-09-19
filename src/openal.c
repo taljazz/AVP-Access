@@ -17,6 +17,7 @@
 #include "ffstdio.h"
 #include "dynamics.h"
 #include "dynblock.h"
+#include "access/acc_bridge.h"
 #include "stratdef.h"
 
 #if 0
@@ -195,8 +196,10 @@ int PlatStartSoundSys()
 	}
 		
 	alcMakeContextCurrent(AvpSoundContext);
-	
-	alListenerf(AL_GAIN, 1.0);
+
+	/* AVP Access: a bridge session is silent unless asked otherwise; sounds
+	   still play (and are logged), they just reach no speaker. */
+	alListenerf(AL_GAIN, AccBridge_Muted() ? 0.0f : 1.0f);
 	alListenerfv(AL_POSITION, pos);
 	alListenerfv(AL_VELOCITY, vel);
 	alListenerfv(AL_ORIENTATION, or);
@@ -623,7 +626,7 @@ int PlatChangeGlobalVolume(int volume)
 		return 0;
 	}
 	
-	alListenerf(AL_GAIN, vol_to_gain_table[volume]);
+	alListenerf(AL_GAIN, AccBridge_Muted() ? 0.0f : vol_to_gain_table[volume]);
 
 	return 1;
 }

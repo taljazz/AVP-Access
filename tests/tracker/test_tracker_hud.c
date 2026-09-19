@@ -14,11 +14,21 @@ static DYNAMICSBLOCK player_dynamics, dynamics[12];
 static PLAYER_STATUS player_status;
 static int failures, checks, reset_calls, stop_calls, accepts_controls, menus;
 static int beep_calls, beep_id, beep_range, beep_volume, click_calls;
+static int cue_depth, click_tagged;
+void AccBridge_BeginCue(const char *source, int sound)
+{ cue_depth++; if (!strcmp(source, "tracker") && sound==SID_TRACKER_CLICK) click_tagged=1; }
+void AccBridge_EndCue(void) { cue_depth--; }
 static VECTORCH beep_position;
 static ACC_TRACKER_CONTACT published[ACC_TRACKER_MAX_CONTACTS];
 static int published_count, published_range;
 
 void AccTracker_Reset(void) { reset_calls++; published_count=0; }
+
+/* Tracker eligibility, sonar cancellation and objective cycling have distinct
+   lifecycles: changing vision must not reset the latter two. */
+static int sonar_resets, objective_resets;
+void AccSonar_Reset(void) { ++sonar_resets; }
+void AccObjectives_Reset(void) { ++objective_resets; }
 void AccTracker_SetContacts(const ACC_TRACKER_CONTACT *contacts,int count,int range)
 { published_count=count; published_range=range; memcpy(published,contacts,count*sizeof(*contacts)); }
 void AccTracker_PlayContact(int sound,const struct vectorch *position,int range,int *handle,int volume)
@@ -48,6 +58,8 @@ static void setup(void)
     player_status.IsAlive=1; CurrentVisionMode=VISION_MODE_NORMAL;
     Observer=0; menus=0; accepts_controls=1;
     reset_calls=stop_calls=beep_calls=click_calls=0;
+    cue_depth=click_tagged=0;
+    sonar_resets=objective_resets=0;
     MTScanLineSize=ONE_FIXED; PreviousMTScanLineSize=0;
 }
 
@@ -133,6 +145,7 @@ static void sweep_and_reset_tests(void)
     setup(); MTDistanceNotLocked=0; MTDelayBetweenScans=1; NormalFrameTime=2; DoMotionTracker();
     check(click_calls==1 && MTDistanceNotLocked && MTScanLineSize==MOTIONTRACKER_SMALLESTSCANLINESIZE,
           "scan reset retains click and re-arms distance lock");
+    check(click_tagged && cue_depth==0,"native sweep click is tagged for bridge logging with a balanced scope");
     setup(); NoOfMTBlips=2; MotionTrackerBlips[0].Brightness=0;
     MotionTrackerBlips[1].Brightness=ONE_FIXED; MotionTrackerBlips[1].X=21; MotionTrackerBlips[1].Y=42;
     NormalFrameTime=100; DoMotionTracker();
@@ -160,6 +173,11 @@ static void eligibility_tests(void)
     INELIGIBLE(player_status.MyFaceHugger=&objects[0],"facehugger suppresses and resets tracker");
     INELIGIBLE(AvP.PlayerType=I_Alien,"other species suppresses and resets tracker");
     INELIGIBLE(CurrentVisionMode=(enum VISION_MODE_ID)(VISION_MODE_NORMAL+1),"other vision suppresses and resets tracker");
+    check(!sonar_resets && !objective_resets,"vision changes preserve sonar and objective cycling");
+    setup(); menus=1; TestHUDTrackerEligibility(&player_status);
+    check(sonar_resets==1 && !objective_resets,"pause cancels sonar without restarting the objective cycle");
+    setup(); AccTracker_ResetHUD();
+    check(sonar_resets==1 && !objective_resets,"explicit HUD reset cancels sonar without restarting objectives");
 #undef INELIGIBLE
 }
 

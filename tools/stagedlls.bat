@@ -32,5 +32,8 @@ for %%f in (Tolk.dll nvdaControllerClient64.dll SAAPI64.dll) do (
 goto :eof
 
 :no_tolk
-if exist "%BUILD%\Tolk.dll" echo [dlls] Tolk.dll already present, left alone& goto :eof
+if exist "%BUILD%\Tolk.dll" (
+    echo [dlls] Tolk.dll already present, left alone
+    goto :eof
+)
 echo [dlls] Tolk.dll not found -- speech will be silent. Set TOLK_DIR.

@@ -32,7 +32,9 @@
 #include "acc_pad.h"
 #include "acc_status.h"
 #include "acc_sonar.h"
+#include "acc_objectives.h"
 #include "acc_tracker.h"
+#include "acc_bridge.h"
 #include <SDL3/SDL_timer.h>
 #include <stdio.h>
 #include <string.h>
@@ -654,7 +656,9 @@ PLAYER_INPUT_CONFIGURATION DefaultMarineInputSecondaryConfig =
     {KEY_VOID}, 		// Jetpack;
     {KEY_VOID},			// Taunt
 
-    {KEY_VOID},
+    {KEY_JOYSTICK_BUTTON_12},		/* Marine_MessageHistory: R3. AvP has no objectives
+				   screen, so replaying messages is the only way back to the
+				   mission text -- it must be reachable from the pad. */
     {KEY_VOID},
     {KEY_VOID},
     {KEY_VOID}
@@ -708,12 +712,31 @@ int AccPad_UpgradeLegacyMarineBindings(
     const PLAYER_INPUT_CONFIGURATION *primary,
     PLAYER_INPUT_CONFIGURATION *secondary)
 {
-    if (memcmp(primary, &DefaultMarineInputPrimaryConfig, sizeof(*primary)) != 0 ||
-        memcmp(secondary, &LegacyMarineInputSecondaryConfig, sizeof(*secondary)) != 0)
+    if (memcmp(primary, &DefaultMarineInputPrimaryConfig, sizeof(*primary)) != 0)
         return 0;
 
-    *secondary = DefaultMarineInputSecondaryConfig;
-    return 1;
+    if (memcmp(secondary, &LegacyMarineInputSecondaryConfig, sizeof(*secondary)) == 0) {
+        *secondary = DefaultMarineInputSecondaryConfig;
+        return 1;
+    }
+
+    /* Narrower second upgrade: the controller preset gained a message-history
+       button after some profiles had already taken the preset. Fill only that
+       one slot, and only when it is unset and everything else still matches the
+       preset exactly -- so a player who has changed anything, or who cleared
+       that binding on purpose against a modified layout, is left alone. */
+    if (secondary->h.Marine_MessageHistory == KEY_VOID) {
+        PLAYER_INPUT_CONFIGURATION probe = *secondary;
+        probe.h.Marine_MessageHistory =
+            DefaultMarineInputSecondaryConfig.h.Marine_MessageHistory;
+
+        if (memcmp(&probe, &DefaultMarineInputSecondaryConfig, sizeof(probe)) == 0) {
+            *secondary = probe;
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 
@@ -993,7 +1016,8 @@ static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSB
     const PLAYER_INPUT_CONFIGURATION *secondary)
 {
 	int statusKeyboard, statusGamepad, trackerKeyboard, trackerGamepad;
-	int sonarKeyboard, sonarGamepad, wantTracker, wantSonar;
+	int sonarKeyboard, sonarGamepad, objectivesKeyboard, objectivesGamepad;
+	int wantTracker, wantSonar, wantObjectives;
 	if (AvP.PlayerType != I_Marine || !player->IsAlive || player->DemoMode
 	    || AvP.LevelCompleted || !IOFOCUS_AcceptControls() || InGameMenusAreRunning()) return;
 	statusKeyboard = DebouncedKeyboardInput[KEY_H]
@@ -1008,11 +1032,18 @@ static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSB
 	    && !AccAccess_KeyIsBound(KEY_R, primary, secondary);
 	sonarGamepad = DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_15]
 	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_15, primary, secondary);
+	objectivesKeyboard = DebouncedKeyboardInput[KEY_O]
+	    && !AccAccess_KeyIsBound(KEY_O, primary, secondary);
+	objectivesGamepad = DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_16]
+	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_16, primary, secondary);
 
-	/* Both the tracker and the sonar need the player's position and heading. */
+	/* Both the tracker and the sonar need the player's position and heading;
+	   the objective list does not. */
 	wantTracker = (trackerKeyboard || trackerGamepad) && dynamics != NULL;
 	wantSonar = (sonarKeyboard || sonarGamepad) && dynamics != NULL;
-	if (!statusKeyboard && !statusGamepad && !wantTracker && !wantSonar) return;
+	wantObjectives = objectivesKeyboard || objectivesGamepad;
+	if (!statusKeyboard && !statusGamepad && !wantTracker && !wantSonar
+	    && !wantObjectives) return;
 
 	/* Consume only our unbound shortcuts so another read in this same frame
 	   cannot repeat the announcement. Leave custom gameplay bindings intact. */
@@ -1022,16 +1053,20 @@ static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSB
 	if (trackerGamepad) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14] = 0;
 	if (sonarKeyboard) DebouncedKeyboardInput[KEY_R] = 0;
 	if (sonarGamepad) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_15] = 0;
+	if (objectivesKeyboard) DebouncedKeyboardInput[KEY_O] = 0;
+	if (objectivesGamepad) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_16] = 0;
 	/* One readout per frame, so two shortcuts pressed together cannot talk over
-	   each other. Status is the most urgent, then the tracker's threat report,
-	   then the sonar's description of the room. Every edge is consumed above
-	   regardless, so a losing request cannot fire again next frame. */
+	   each other. Ordered by urgency: your own condition, then what is hunting
+	   you, then the shape of the room, then the mission. Every edge is consumed
+	   above regardless, so a losing request cannot fire again next frame. */
 	if (statusKeyboard || statusGamepad) AccStatus_AnnounceMarine(player);
 	else if (wantTracker)
 		AccTracker_Announce(&dynamics->Position, dynamics->OrientEuler.EulerY);
 	else if (wantSonar)
 		AccSonar_Request(&dynamics->Position, dynamics->OrientEuler.EulerY,
-		                 (unsigned int)SDL_GetTicks());
+		                 AccBridge_NowMs());
+	else if (wantObjectives)
+		AccObjectives_Announce();
 }
 
 /* This function maps raw inputs onto the players movement attributes in
@@ -1821,8 +1856,12 @@ void ReadPlayerGameInput(STRATEGYBLOCK* sbPtr)
 	if (DebouncedKeyboardInput[KEY_GRAVE]) IOFOCUS_Toggle();
 	AccAccess_CheckRequests(playerStatusPtr, sbPtr->DynPtr, primaryInput, secondaryInput);
 	/* Plays the sweep tones a sonar request scheduled, spread over time so the
-	   fan is heard moving left to right rather than as one chord. */
-	AccSonar_Update((unsigned int)SDL_GetTicks());
+	   fan is heard moving left to right rather than as one chord. The bridge
+	   clock is real time except while a bridge session holds time, when the
+	   pings must stay half a second apart in game time. */
+	AccBridge_BeginCue("sonar", -1);
+	AccSonar_Update(AccBridge_NowMs());
+	AccBridge_EndCue();
 	AccPad_TraceGameInput(playerStatusPtr, primaryInput, secondaryInput);
 }
 

@@ -11,6 +11,7 @@
 #define UseLocalAssert Yes
 #include "ourasert.h"
 #include "hud_layout.h"
+#include "acc_bridge.h"
 
 #undef textprint
 
@@ -653,6 +654,16 @@ void FrameCounterHandler(void)
 	}
 
 	RealFrameTime = NormalFrameTime;
+
+	/* AVP Access: while the play bridge holds time, every frame is the same
+	   fixed step, however long the client took to send the next command. */
+	{
+		int bridgeFrameTime = AccBridge_FixedFrameTime();
+		if (bridgeFrameTime > 0) {
+			NormalFrameTime = bridgeFrameTime;
+			RealFrameTime = bridgeFrameTime;
+		}
+	}
 
 	if (TimeScale != ONE_FIXED)
 	{

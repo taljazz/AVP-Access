@@ -797,6 +797,7 @@ extern void AvP_UpdateMenus(void)
 static void SetupNewMenu(enum AVPMENU_ID menuID)
 {
 	enum AVPMENU_ID previousMenuID = AvPMenus.CurrentMenu;
+	AccMenu_ClearCapturedText();
 	AvPMenus.CurrentMenu = menuID;
 
 	/* set pointer to the start of the menu's element data */
@@ -3835,6 +3836,7 @@ static void RenderMenuElement(AVPMENU_ELEMENT *elementPtr, int e, int y)
 
 		}
 	}
+	AccMenu_EndCapture();
 }
 
 static int HeightOfMenuElement(AVPMENU_ELEMENT *elementPtr)
@@ -5135,9 +5137,8 @@ const char *AccMenu_BriefingLine(int index)
 {
 	switch (AvPMenus.CurrentMenu)
 	{
-		case AVPMENU_MARINELEVELS:
-		case AVPMENU_ALIENLEVELS:
-		case AVPMENU_PREDATORLEVELS:
+		case AVPMENU_LEVELBRIEFING_BASIC:
+		case AVPMENU_LEVELBRIEFING_BONUS:
 			break;
 		default:
 			return NULL;

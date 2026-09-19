@@ -6,9 +6,9 @@
   menu element types whose label and value come from different places (episode
   names are TextDescription plus a slider offset, profile slots carry their own
   string, number fields have a special zero string, and so on). Mirroring that
-  logic means duplicating it, and duplicated logic drifts -- which is exactly how
-  whole menus end up silent. Capturing the rendered strings is correct for every
-  element type by construction, including ones added later.
+  logic means duplicating it, and duplicated logic drifts. Capture still needs
+  correct element boundaries and menu transitions; regression fixtures and live
+  checks cover those separately.
 
   A semantic fallback still describes elements that draw no text at all (a
   graphic-only entry), so nothing is ever completely mute.
@@ -35,6 +35,8 @@ typedef int (*ACCMENU_RENDERTEXT_COLOURED)(char *textPtr, int x, int y, int alph
 int AccMenu_BeginCapture(int elementIndex,
                          ACCMENU_RENDERTEXT rt,
                          ACCMENU_RENDERTEXT_COLOURED rtc);
+void AccMenu_EndCapture(void);
+void AccMenu_ClearCapturedText(void);
 
 int AccMenu_CaptureRenderText(char *textPtr, int x, int y, int alpha,
                               enum AVPMENUFORMAT_ID format);
@@ -53,7 +55,7 @@ void AccMenu_RepeatCurrent(void);
 void AccMenu_SpeakHelp(void);
 
 /* Implemented in avp_menus.c, where the briefing strings are file-static.
-   Returns line `index` (0..4) of the mission prelude on the level-select
+   Returns line `index` (0..4) of the mission prelude on the mission briefing
    screens, or NULL anywhere else. */
 const char *AccMenu_BriefingLine(int index);
 
