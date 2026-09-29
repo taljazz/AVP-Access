@@ -1,0 +1,32 @@
+# clang-tidy configuration for AVP Access.
+#
+# clang-tidy enables no checks by default, so without this file every run needs
+# an explicit --checks= argument. Requires compile_commands.json, which
+# tools/configure.bat generates into ../build.
+#
+#   clang-tidy -p ../build src/access/acc_objectives.c
+#
+# Checks are scoped to finding bugs, not enforcing style: this repository is a
+# 25-year-old engine port and a style pass over it would bury the real findings.
+#
+#   clang-analyzer-*  path-sensitive analysis: null derefs, leaks, uninitialised reads
+#   bugprone-*        patterns that compile cleanly and behave wrongly
+#
+# The one exclusion is Annex K. That check wants snprintf_s/fprintf_s, which are
+# an optional C11 annex implemented almost nowhere outside MSVC. Adopting them
+# would break the portability src/access/ deliberately keeps -- every module
+# there degrades to a no-op rather than failing to build on another platform.
+# snprintf with an explicit size is already the correctly bounded call.
+
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+
+# Header diagnostics are limited to the accessibility layer. Without this, one
+# run reports through the whole engine include chain -- stratdef.h alone emits
+# macro warnings from code predating this project by two decades.
+HeaderFilterRegex: 'src/access/.*'
+
+FormatStyle: none

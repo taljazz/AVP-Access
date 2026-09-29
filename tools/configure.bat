@@ -5,6 +5,7 @@ call "%~dp0env.bat" || exit /b 1
 "%CMAKE%" -S "%SRC%" -B "%BUILD%" -G Ninja ^
   -DCMAKE_MAKE_PROGRAM="%NINJA%" ^
   -DCMAKE_BUILD_TYPE=RelWithDebInfo ^
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ^
   -DSDL3_INCLUDE="%SDL3_INC%" ^
   -DSDL3_LIBRARY="%SDL3_LIB%" ^
   -DOPENAL_INCLUDE_DIR="%OAL_INC%" ^
