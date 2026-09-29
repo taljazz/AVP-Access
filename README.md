@@ -402,6 +402,10 @@ shipping code rather than a copy of it. None needs a controller, a game window o
 retail data. They need only MSVC and PowerShell — run `tools\env.bat` first, or let the
 runners do it.
 
+`tests\run_all.bat` runs every runner below, prints pass or fail for each, keeps each
+runner's full output in `%TEMP%\avp-access-tests` (or a folder given as its argument),
+and exits non-zero if any fail.
+
 | Suite | Covers | Checks |
 | --- | --- | ---: |
 | `tests\controller\run_tests.bat` | Menu press/hold/release, any-key prompts, overlapping keyboard input, binding capture, disconnect/reconnect, sticks, triggers, menu-to-gameplay transitions | 240 |

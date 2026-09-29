@@ -1,233 +1,72 @@
 # AVP Access — engine notes and handover
 
-## Predator Waterfall navigation — 2026-09-20 (implemented and replay-verified)
-
-Local, uncommitted Predator support targets the first Waterfall mission only.
-Implemented support includes player status, field charge, cloak/vision and selected
-weapon speech; shared sonar/objective paths; Predator controller defaults and custom
-binding checks (the final three active Predator configuration slots); combat/loot/height
-handling; route/snap gates; and an exact Waterfall + Predator + room-94 opening-control
-matcher. Status, sonar/objectives, combat, loot and species-aware traversal are shared
-support. The Predator default controller preset assigns R3 to stored-message history;
-View+R3 still selects snap, and only exact prior defaults migrate while custom bindings
-remain intact. The opening-control matcher, surveyed fall-room run-up helper and
-final-shaft lower-stair/lift itinerary are the Waterfall-specific route additions.
-Marine behavior remains covered by
-its existing regressions. A 112-room, 160-render-module, 227-link static
-audit found 52 species-restricted links and no missing entries or invalid references.
-The fall-route helper gives manual movement cues. An optional, explicitly started
-jump assist uses normal movement requests, never writes physics state, and cancels
-when the player takes control. Keyboard J (when unbound) and View+A (when View is
-unbound and A retains default Predator Jump) start/cancel it only at the two surveyed
-staging zones with route guidance on and the opening gate unlocked.
-
-Predator equipment controls in the Xbox preset use View/Back chords: RB/LB zoom in/out,
-X requests disc recall, B selects a possessed medicomp, Y requests the grappling hook,
-and L3 taunts. Zoom reports its step (1–3) or normal view; each Predator vision cycle
-speaks the resulting mode. Medicomp uses the regular fire controls after selection (RT
-heals, LT extinguishes fire). The grappling hook remains equipment-gated, and recall
-feedback confirms a request rather than a successful return. These chords borrow only
-exact stock bindings, preserve custom View/button assignments, suppress the borrowed
-standalone action while held, and allow repeated taps while View remains down. Automated
-input and vision tests pass; this addition has not yet been live-tested with a controller
-or screen reader. The plasma caster's engine lock feedback has no new spoken accessibility
-cue in this change.
-
-Saved-profile diagnosis found why one player's pad actions had been absent while the
-sticks still moved: the existing Predator profile kept the old keyboard-only secondary
-actions, and its custom keyboard primary differed from the active default-key table.
-The old migration required a byte-for-byte primary match and compared the full secondary
-struct, including two unused expansion bytes that were zero in the profile but `KEY_VOID`
-in the legacy initializer. The focused migration now recognizes only the exact old
-active 30-slot secondary layout, accepts a primary only when it has no gamepad bindings,
-and preserves that primary and both expansion bytes. Any customized active secondary
-slot or gamepad binding in the primary blocks migration. The existing profile is read
-and upgraded in memory on load; no profile file was edited by this fix.
-The focused gameplay-input runner now passes 204 assertions, including a migrated
-saved-profile-shaped fixture for A jump, RT/LT fire, Y/LB weapon cycling, RB vision,
-D-pad Up cloak, View+RB zoom and View+X recall. These are automated input-map checks;
-they do not substitute for the player's live controller check.
-
-Automated regressions and their logs are listed in
-`../build/predator-regressions-20260920/SUMMARY.txt`. Disposable live surveys
-verified the first switch, the two surveyed jumps, gate02 into tunnl01, and the
-later route through the final shaft and airlock to the actual `Level complete`
-event. Trace4 reached that event at sequence 1834; `bridge/events.jsonl` records
-the speech and `bridge/shot-001836.png` records the completion screen under
-`../build/predator-jump-assist-trace4-20260920/`. Stage4 checkpoints include
-slot 2 at the upper start, slot 3 on the north deck, slot 4 at northeast staging,
-and slot 5 on the east deck. Stage5's original profile remains preserved at
-gate05 (slot 7 in the security area, slot 8 inside gate05). The earlier jump
-assist clone profile is `../build/predator-jump-assist-replay-20260920/profile/.avp`:
-slot 7 is after the upper switch and slot 8 is the pre-lift checkpoint in well01.
-The trace4 session directory itself has bridge logs, not a profile. In that
-clone, keyboard J completed the first
-guided jump and View+A completed the second; both landed grounded. Start/cancel
-and manual-control cancellation were also checked at staging. Earlier
-`pad_l3+pad_r3` snap and `rshift` walking observations were invalid; controls
-confirmed from `usr_io.c` are `w+lshift` to walk, `w+rshift` to jump, Space to
-interact, and `pad_view+pad_r3` to snap. Survey immortality does not stop health
-loss; completion in survey mode does not establish normal-combat survival.
-
-The NPC graph has a directed room-9-to-94 edge but no return edge from 94 to 9.
-The graph remains unchanged and no global waiver was added. Earlier physical
-survey play crossed the intervening gates and reached completion; it remains
-separate evidence from the targeted guided replay below. Switch6 unlocked gate03,
-switch7 opened the water gate, and switch56 changed gate05 passability before its
-physical crossing.
-
-The latest route source was rebuilt with `tools/build.bat`. A targeted replay
-started from the saved pre-lift slot8 checkpoint, not a fresh campaign. Frame 1
-confirmed the player grounded in well01 at `(190386,32010,49019)`, switch11 state
-0 and lift8 disabled at upper height -2076. With route guidance enabled, the
-bounded stair approach led to the measured corner and then switch11; Interact
-changed it to state 1. The player waited, boarded, rode the lift, followed the
-north exit point `(188281,844,72090)` and west point `(182512,844,71959)`, activated
-upper switch58 and traversed the airlocks. In
-`../build/predator-final-guided-replay2-20260920/bridge-clean/events.jsonl`,
-event 392 at frame 1220 says `Level complete.` The final reply (sequence 115,
-after the owned process was quit) reports grounded in airlock03 at
-`(178935,844,101040)`. The clone profile is
-`../build/predator-final-guided-replay2-20260920/profile/profile/.avp`; it is
-separate from the preserved stage5 profile and the earlier jump-assist clone.
-This verifies the lower-lift-to-completion segment with the latest guided build,
-not a newly guided full-campaign run.
-The tested controls from `usr_io.c` are N or View+D-pad Right to toggle route
-guidance, Space or Xbox X to interact, W+Left Shift to walk, and W+Right Shift
-to jump. View+R3 snaps to guidance; keyboard J/View+A start the optional assist
-only at the two surveyed opening-jump staging points.
-
-Focused suites pass route 159 and lift-route 63. The route suite pins the lower
-stair approach and passed-corner conditions; raw outputs are
-`../build/predator-regressions-20260920/route-final-shaft.log` and
-`../build/predator-regressions-20260920/lift-route-final-shaft.log`. The earlier
-trace4 physical survey separately reached `Level complete` at sequence 1834;
-the earlier opening jump-assist clone separately verified keyboard J and View+A
-through both surveyed jumps. Room82 cue stickiness was not confirmed: distances
-decreased 2356→1649→806 and the waypoint advanced. Survey mode suppresses combat
-takeover and makes the player immortal. These runs therefore do not establish
-normal-combat survival or normal combat success. NVDA speech quality and user
-controller listening/feel remain unverified. Grounded/nearly-flat contact,
-velocity and camera telemetry were observed. Static downstream notes remain in
-`../build/predator-downstream-stage3-20260920/`.
-
 Written so that someone picking this up cold — human or another assistant — starts with
-the map rather than rediscovering it. The original engine notes were verified against
-the running game. The controller follow-up below distinguishes automated checks from
-live observations and work still awaiting confirmation.
+the map rather than rediscovering it. §0–§9 are reference: what exists, how it hangs
+together, and what is left. §10 is the dated development log, oldest first, which holds
+the evidence behind every claim in the reference sections.
 
 The theme, if there is one: this engine is 25 years old and the Windows path of the port
 is not continuously tested. Several bugs below had been dormant for years because nothing
 happened to exercise them. **When something behaves oddly, measure before theorising** —
 three of the four hardest problems in this project were misdiagnosed on first inspection.
 
+**Before starting work:** the tree is shared with another assistant, so run `git status`
+and `git diff` rather than assuming it matches this document. Then `tools\build.bat` and
+`tests\run_all.bat` — all 24 runners should pass.
+
 ---
 
-## Derelict whole-map audit and exit survey — 2026-09-20
+## 0. Status at a glance
 
-Local, uncommitted work. This extends the previous slot-2 fix and supersedes the
-statement that the latter half has never been traversed. It does not certify
-all optional rooms, all puzzle states, other levels, or Predator/Alien movement.
+Updated 2026-09-29. Evidence levels, strongest first:
 
-The entire exported graph was audited: 172 AI rooms, 337 directed connections,
-no missing entries or invalid references, 127 authored waypoint volumes in seven
-complex rooms, and seven platform lifts. The local per-room report records paths
-for every room. With only the three surveyed downward shaft links allowed,
-162 rooms have a topological path to END; 110 have a path through the snapshot's
-currently AI-passable rooms. The other ten include disconnected entries and
-restricted side branches. Neither count establishes physical player clearance.
+- **Player** — the user confirmed it live with NVDA and/or the Xbox controller.
+- **Replay** — an assistant drove the real game through the bridge (`docs/BRIDGE.md`) and
+  observed it working. Bridge runs are usually muted, so they say nothing about how cues
+  *sound*; runs in survey mode make the player immortal, so they prove a route, not that
+  the fights along it can be survived.
+- **Tests** — covered by the regression runners only. Those compile the real module against
+  mocked engine data and inspect call parameters, never perceived audio.
 
-The apparent restricted links 75->76->158 are the long SHIPCOR-05/JOCKEY/HOLE
-platform descent. Link 171->159 is the final lift shaft. Route search now accepts
-only these exact directed Derelict connections, matching world entry coordinates.
-Reverse climbs and other NPC-restricted links stay restricted. Guidance uses the
-lower landing goal rather than intermediate shaft portals, recognizes a moving
-platform across AI-room boundaries, waits aboard, then guides the exit. A missing
-identified platform produces a wait, not permission to walk into the shaft. The
-final platform's origin is 1945 mm above the standing-player position; its boarding
-check accounts for that measured offset only on this identified shaft.
+| Feature | Marine | Predator | Alien |
+| --- | --- | --- | --- |
+| Spoken menus, briefings, profile names | Player (species-agnostic) | ← | ← |
+| In-game message speech (`NewOnScreenMessage`) | Player | Replay | Hook is species-agnostic; not checked |
+| Message history (F1 / R3) | Replay (empty history); populated history Tests | Tests | — |
+| Cutscenes, music, plot videos, menu background | Player / Replay (species-agnostic) | ← | ← |
+| Controller in menus | Player | ← | ← |
+| Controller gameplay preset + migration | Player | Tests (equipment chords, migration) | — |
+| Stick response curve | Player | shared | — |
+| Status readout (H / View) | Player | Tests | — |
+| Motion tracker (T / D-pad Down) | Player | n/a — speaks that it is Marine-only | — |
+| Sonar sweep (R / D-pad Left) | Player | shared code, not checked | — |
+| Objectives (O / D-pad Right) | Replay | shared code, not checked | — |
+| Route guidance (N / View+Right) | Replay: Derelict to completion (survey mode) | Replay: Waterfall to completion (survey mode) | — |
+| Lift boarding/exit guidance | Replay (Derelict lifts, final shaft) | Replay (Waterfall final shaft) | — |
+| Surveyed drops / jump prompts | Replay (Derelict room69 lip, shafts) | Replay (Waterfall fall room) | — |
+| Optional jump assist (J / View+A) | — | Replay (Waterfall staging points only) | — |
+| Combat targeting cues | Replay (encounters; kills and vertical aim not proven) | Tests | — |
+| Supply guidance (L, K / View+Left, View+Down) | Replay (medkit collected) | Tests | — |
+| Snap to guidance (View+R3) | Replay | Tests | — |
+| Map export / audit (bridge `map`) | Replay (Derelict) | Replay (Waterfall audit) | untested |
 
-Live evidence in `../build/full-route-2026-09-20/`:
-- `live/`: normal-damage replay from a private slot-2 copy, through VIEWD-05,
-  ship corridors, the long descent and HOLE, then death during Alien combat.
-  Health/armor did not decrease during that descent.
-- `survey1/`: opt-in survey run reached the actual Level Completed screen;
-  `shot-000425.png` records it. Ordinary movement, turns and firing were used;
-  no teleport, door unlock or objective manipulation. Enemies obstructing the
-  path were cleared with firing. This run preceded the final-shaft guidance fix.
-- `final/`: second replay verified explicit final-shaft boarding/wait/exit and
-  reached completion again; the new one-time `Level complete.` speech was logged.
-  It exposed a contact-gap lift exit trap, requiring a manual forward command;
-  do not treat this run as verification of the subsequent contact-gap fix.
-- `landing-check/`: replay with the contact-gap fix crossed both shafts and the
-  final doorway without the previous rising-platform trap, then reached the
-  completion screen (`shot-000446.png`) and logged `Level complete.` once. Aliens
-  physically blocking the exit and later water walkway were cleared by firing;
-  this was not an uninterrupted walking-only run. A jump attempted at the latter
-  obstruction did not clear it; shooting the blocking Alien did.
-
-The final lift hold is retained across a brief loss of floor contact only within
-its surveyed lower step-off area. Leaving that area or resetting guidance releases
-it. Other platforms still require contact. Final MSVC build succeeded. Nine
-affected regression runners passed (`tests.json`); route 106, lift route 36,
-traversal 51, and bridge runtime/client 49+12 checks. The last rebuild only removed
-an unused lift variable and refreshed a header comment after the live replay;
-the lift suite was rerun successfully. All owned game processes were closed.
-
-Survey mode requires both the bridge and environment `AVP_BRIDGE_SURVEY=1`.
-It makes the player immortal without healing, and suppresses route combat takeover.
-It is off for normal launches; results establish navigation, not combat survival.
-Only disposable profile copies were used. Original SkyPulse slot 2 SHA256 remains
-DCDA09695449E84F79723E93496FB6BB744E566216B250E6AD8B401D55E9E010.
-Map exports and screenshots stay outside Git. See `docs/BRIDGE.md` for survey limits.
-
-## Visual/media audit — 2026-09-19
-
-The staged and original GOG FMVs were inventoried and fully decoded: all 77
-files match SHA-256, with no missing files or decoder errors. This covers seven
-640x360 logo/campaign movies, the 640x380 menu background, 53 128x96 plot videos,
-and 16 music files with dummy 4x4 video (15 Bink tracks plus introsound.smk).
-
-The original animated menu background was still stubbed out. It now uses a
-separate, nonblocking, looping decoder, redraws the background before menu text,
-and retains the static backdrop if unavailable. It does not advance gameplay or
-replace menu music. The obsolete hard-coded 360-line crop was removed so the
-380-line movie is preserved. Changes are local, not committed or pushed.
-
-Audit scripts, per-file hashes/metadata/decode logs and captured frames are under
-`../build/visual-audit-2026-09-19/` (local copyrighted material; do not commit).
-All seven logo/campaign movies were played through the game with sample frames
-inspected; the background movie also completed standalone playback. The first
-logo attempt ended early and was retried successfully. Movie screenshots use the
-engine software-surface capture; gameplay screenshots use the OpenGL framebuffer.
-Marine CORR-15 was inspected fullscreen with HUD, world textures, prelude overlay
-and image intensifier off/on. Dark normal lighting and green intensified lighting
-are visibly distinct. This is not a complete playthrough of all three campaigns;
-natural mission triggers and every level/special effect are not exhaustively verified.
-Validation: all 53 plot-message diagnostics exited 0 with changing frames, nonzero
-palettes and no guard timeouts. These diagnostics exercise the in-engine decoder,
-not every wall-monitor placement. The build succeeded; menu/media tests passed
-22 assertions plus the no-FFmpeg fallback API test. Restored menu screenshots
-show animation after multiple loops and no retained old menu labels; 794 of 5076
-sampled background pixels changed between late captures. Profile/main/load menu
-navigation and speech worked, followed by loading Marine CORR-15. The post-build
-logo movie was also rechecked after separating scaling from presentation.
-
-The tests used isolated copies of the Player audit profile, not SkyPulse. Bridge
-runs were muted, so audio stream decoding is verified but this audit does not
-claim a new human listening or lip-sync check. Missing-file fallback is implemented;
-the no-FFmpeg fallback was executed, but removal of the installed movie was not tested.
+Multiplayer is out of scope: every in-game accessibility feature is gated off in network
+games.
 
 ## 1. Layout
 
 ```
 APV Access/
   NakedAVP/      this repository — engine source + src/access/
-    tools/       env.bat, configure.bat, build.bat, run.bat
-    tests/       controller, gameplay, status and tracker regression checks
+    tools/       env, configure, build, run, run-fullscreen, stagedlls (.bat);
+                 bridge.ps1 (bridge client), inspect-map.ps1, audit-map.ps1
+    tests/       20 suites, 24 runners; run_all.bat runs them all
+    docs/        HANDOVER.md (this), BRIDGE.md, MAP-INSPECTION.md
   game/          working copy of the retail data, lowercased (NOT in git)
   third_party/   SDL3, OpenAL Soft, FFmpeg (NOT in git)
-  build/         build output + runtime DLLs
+  build/         build output, runtime DLLs, and every live-test log and
+                 screenshot referenced in §10 (NOT in git — copyrighted material)
+  .avp/          profiles and saves; run.bat always starts from the project root
 ```
 
 The retail install is left pristine; `game/` is a copy. Data files and folders must be
@@ -238,20 +77,43 @@ lowercase — the port expects it.
 species sound banks, not installer junk. Likewise the `FMVs/` folder is not optional —
 the *music* lives there, as Bink files.
 
+**Licence:** the AvP source is Rebellion's, released for non-commercial use only. The
+README's credit and licence text must stay. Never commit game data, map exports,
+screenshots or profiles.
+
 ## 2. The accessibility layer
 
-All new code is in `src/access/`, kept separate from engine source:
+All new code is in `src/access/`, kept separate from engine source. Each module degrades
+to no-ops when its dependency is absent, so other platforms still build.
 
 | File | Role |
 | --- | --- |
-| `acc_speech.*` | Tolk screen-reader output |
-| `acc_status.*` | On-demand Marine health, armor, weapon, and ammo speech |
-| `acc_tracker.*` | Directional tracker cues and spoken contact bearings/distances |
+| `acc_speech.*` | Tolk screen-reader output, loaded dynamically |
 | `acc_menu.*` | Spoken menus, via render-text capture |
-| `acc_media.*` | Bink/Smacker music, cutscenes, plot messages (FFmpeg) |
-| `acc_pad.*` | SDL3 gamepad |
+| `acc_media.*` | Bink/Smacker music, cutscenes, plot messages, menu background (FFmpeg) |
+| `acc_pad.*` | SDL3 gamepad: hotplug, stick curve, menu aliases, `--padtrace` |
+| `acc_status.*` | Spoken Marine and Predator status |
+| `acc_objectives.*` | Objective cycling and stored mission-message history |
+| `acc_tracker.*`, `acc_tracker_test.*` | Marine tracker cues/speech; `--trackertest` listening diagnostic |
+| `acc_sonar.*` | Nine-ray sweep that names the shape of the space |
+| `acc_route.*` | Continuous guidance: orchestration, speech, beacon, loot/combat hand-off |
+| `acc_route_targets.*` | Which switch, door control or area an objective needs |
+| `acc_wayroute.*` | Paths through authored intra-room waypoint volumes |
+| `acc_traversal.*` | Local steering, detour grid, strafe/jump prompts, floor following |
+| `acc_lift_route.*` | Platform lift boarding, waiting and exit |
+| `acc_fall_route.*` | Hand-surveyed drops and approaches (Derelict, Waterfall) |
+| `acc_jump_assist.*` | Optional Predator jump assist at surveyed Waterfall staging points |
+| `acc_combat.*` | Visible-hostile targeting cues and aim corrections |
+| `acc_loot.*` | Useful-supply browsing and ranking |
+| `acc_snap.*` | One-shot turn to the active guidance point |
+| `acc_bridge*.*` | File-based automation bridge for live testing (`docs/BRIDGE.md`) |
+| `acc_map.*` | Read-only whole-level export (`docs/MAP-INSPECTION.md`) |
 
-Each degrades to no-ops when its dependency is absent, so other platforms still build.
+Engine files touched outside `src/access/` are listed where each hook is described (§3,
+§10). The main integration points are `usr_io.c` (every shortcut, the controller presets
+and profile migration), `hud.c` (message and tracker hooks, lifecycle resets),
+`avp_menus.c` (menu narration), `triggers.c` (shared activation check), `bh_plift.c`
+(lift hold) and `missions.cpp` (objective identity).
 
 ## 3. Engine hook points
 
@@ -320,6 +182,12 @@ was subtle: playback looked and sounded fine, just at half frame rate.
 Also: these cutscenes open on ~2 seconds of genuine black, so a "no pixels" check on frame 1
 proves nothing. Sample around frame 120.
 
+The animated menu background (`menubackground.bik`, 640×380) runs on a second,
+nonblocking looping decoder that draws into the same software surface *before* the menu
+text, without presenting; the normal menu renderer then adds its overlay and flips. All
+77 retail movies were hash-checked and fully decoded in the 2026-09-19 visual/media audit
+(§10).
+
 ## 5. Bugs found in the engine
 
 All pre-existing, all worth upstreaming.
@@ -356,8 +224,10 @@ All pre-existing, all worth upstreaming.
 ## 6. Gamepad
 
 Menus, Marine movement and look, pause/resume, firing, jumping and interacting are
-user-confirmed working. What remains unverified is listed in the follow-up below and in
-§8 -- read those before assuming any part of this is still broken.
+user-confirmed working. What remains unverified is listed in §9, with the evidence in the
+controller entries of §10 -- read those before assuming any part of this is still broken.
+The stick curve was later softened (§10, Xbox sensitivity adjustment); the scaling below
+describes the original mapping it builds on.
 
 `src/access/acc_pad.c` uses SDL3's gamepad layer (not raw `SDL_Joystick`, whose numbering is
 device-specific). Axes are written into the `JOYINFOEX` the engine already reads:
@@ -373,7 +243,7 @@ Enter/Escape are published **only while a menu is up**, so the same buttons stay
 in-game bindings.
 
 Two bugs found in the first pass. The first has since been **superseded** -- see the
-follow-up below, where pad and keyboard state are tracked separately rather than the pad
+2026-09-07 controller follow-up in §10, where pad and keyboard state are tracked separately rather than the pad
 merely owning its keys:
 - The pad cleared its keys every frame it did not press them. Since it is read *after*
   keyboard events, it wiped `KEY_UP`/`KEY_DOWN`/`KEY_CR`/`KEY_ESCAPE` right after the
@@ -384,6 +254,155 @@ merely owning its keys:
   startup vanish the moment a profile loads — and any profile saved before controller support
   existed has the right stick disabled. Settings are now re-asserted every frame from
   `AccPad_ApplyControlMethods()` in `usr_io.c`.
+
+## 7. Controls reference
+
+Taken from `usr_io.c`, not from memory. Every accessibility shortcut yields to the
+player's own bindings: if a profile binds the key or button to a game action, the
+game action wins. In-game shortcuts work for the Marine and Predator only, in
+single player, while alive and not paused.
+
+**Menus** — arrows or D-pad to move, Enter or A to select, Escape or B/Start to go back.
+F1 speaks the item's help string, F2 repeats the current item.
+
+**In game**
+
+| Action | Keyboard | Xbox |
+| --- | --- | --- |
+| Status readout | H | View, tapped and released alone |
+| Motion tracker (Marine) | T | D-pad Down |
+| Sonar sweep | R | D-pad Left |
+| Cycle objectives | O | D-pad Right |
+| Mission-message history | F1 | R3 |
+| Route guidance on/off | N | View + D-pad Right |
+| Browse useful supplies | L | View + D-pad Left |
+| Guide to selected supply / cancel | K | View + D-pad Down |
+| Snap facing to guidance point | — | View + R3 |
+| Jump assist (Predator, Waterfall staging only) | J | View + A |
+
+Holding View and pressing any other button cancels the status readout, so chords
+stay quiet.
+
+**Xbox gameplay presets** (secondary bindings; keyboard/mouse primaries unchanged)
+
+| Button | Marine | Predator |
+| --- | --- | --- |
+| RT / LT | Primary / secondary fire | Primary / secondary fire |
+| A | Jump | Jump |
+| B | Crouch | Crouch |
+| X | Operate | Operate |
+| Y / LB | Next / previous weapon | Next / previous weapon |
+| RB | Throw flare | Cycle vision mode |
+| D-pad Up | Image intensifier | Cloak |
+| L3 | Walk | Walk |
+| R3 | Message history | Message history |
+| View + RB / LB | — | Zoom in / out |
+| View + X / B / Y | — | Recall disc / medicomp / grappling hook |
+| View + L3 | — | Taunt |
+
+Start pauses; use A on Resume Game (the root pause menu ignores Back). Profiles migrate to
+these presets only when their bindings exactly match an older default, so customised
+profiles are never overwritten. See §6 and the 2026-09-20 Predator entry in §10.
+
+**Command-line switches** (`main.c`) — `-w` windowed, `-f` fullscreen, `--padtrace`
+controller and shortcut trace, `--padtest`, `--trackertest` guided tracker listening
+test, `--movie <path>` plays one FMV and exits, `--plotmsg <n>` plays one plot video,
+`--skip-intro` skips the startup logos (they play by default), `--debug` enables the
+console (`GOD`, `ALIENBOT`), and `--bridge` / `--bridge-dir` / `--bridge-audible` for
+the automation bridge (`docs/BRIDGE.md`).
+
+## 8. Debugging notes
+
+- Get real exit codes by running through a `.bat` that echoes `%ERRORLEVEL%`; PowerShell's
+  `$p.ExitCode` came back empty for this process. `0xC0000374` is heap corruption,
+  `0xC0000005` an access violation.
+- PowerShell needs `&` before a quoted path; cmd and bash must not have it.
+- `fflush(stderr)`-ed traces beat reasoning. The double-free looked like FFmpeg misuse for a
+  good while; the dropped frames looked like duplicate source frames, then like a bad audio
+  clock, before the real cause showed up.
+- Cross-check claims about content against the source files with `ffprobe`/`ffmpeg` before
+  concluding the code is wrong.
+- **This machine sets `NoDefaultCurrentDirectoryInExePath=1`**, so cmd refuses to run an
+  executable from the working directory unless it is written `.\name.exe`. It surfaces as
+  `'name.exe' is not recognized`, which reads like a failed build rather than a refusal to
+  execute. The test runners hit this and appeared to fail wholesale while the tests
+  themselves were fine. Always invoke built binaries with an explicit path.
+- **Keep the test suites dependent only on MSVC and PowerShell.** `tests/media` briefly
+  needed Python to extract functions from source into a fixture header; the generated
+  header is gitignored, so a machine without Python could not run that suite at all even
+  though it had everything else. Rewritten as `extract_menu.ps1`. `tests/tracker` already
+  did it this way.
+
+## 9. Not yet done
+
+Rewritten 2026-09-29 from the open items in §10. Ordered roughly by how much each
+one stands between a blind player and finishing the game.
+
+**1. The Alien campaign has no in-game support.** Menus, briefings, cutscenes and
+spoken on-screen messages work for every species, but every in-game shortcut in
+`AccAccess_CheckRequests()` is gated to Marine and Predator, and there is no Alien
+controller preset. Cheapest first: an Alien status readout (health only; no ammo),
+an Xbox preset with the same exact-match migration rule, and enabling sonar and
+objectives, which are species-neutral. Route guidance is a separate, much larger
+problem — the Alien climbs walls and ceilings, and the room graph's
+`alien_only` links (§10, 2026-09-20 vertical passage) are exactly the ones Marine
+routing refuses.
+
+**2. Only the first level of each campaign is proven.** Route guidance is generic
+code, but it has been walked end to end only on Derelict (Marine) and Waterfall
+(Predator), and both depend on hand-surveyed helpers in `acc_fall_route.c` for the
+drops and lips the NPC graph cannot describe. Each further level needs a map
+export and audit (`tools/audit-map.ps1`), a replay, and surveys for whatever
+vertical transitions the audit flags. Never globally enable `alien_only` links for
+the Marine or Predator.
+
+**3. Player verification backlog.** Built and replay-tested, but not yet confirmed
+by the user with NVDA and the controller:
+- Predator: status, vision/zoom speech, the View equipment chords, R3 history, jump
+  assist, and the migrated saved profile's pad actions in play.
+- Marine: route guidance timing and wording after the "less eager / shorter speech"
+  tuning, the override approach, lift exit timing, supply guidance, snap (including
+  combat pitch), View-release status.
+- Combat cues against a live enemy — no kill, acquisition or vertical aim
+  correction has been observed.
+- Corrected species labels, the briefing, and sonar with the intensifier on.
+- Populated message-history replay, profile editing, controller reconnection,
+  binding capture, and loading/restart prompts.
+
+**4. Survivability is unproven.** Both completion runs used survey mode (player
+immortal, route combat takeover off). The normal-damage Derelict replay died in
+combat. Whether the combat cues let a blind player win the fights along the route
+is the open question.
+
+**5. Known navigation gaps.**
+- COMM-ENT04 staircase (Derelict) needed a manual jump the traversal prompt did not
+  identify.
+- After activating the glass-covered control, one run reported no clear local
+  approach; moving door versus over-conservative clearance was never determined.
+- Sonar's generous open-sector rule, lifts and very large rooms; eye-height clear
+  rays do not prove a walkable route.
+- Grid-search cost in busy scenes has not been observed.
+
+**6. Smaller items.**
+- Tracker across save/load and lift transitions.
+- Plasma caster lock-on has no spoken cue.
+- Plot-message audio is listener-relative, not positioned at the screen —
+  `VolumeOfNearestVideoScreen`/`PanningOfNearestVideoScreen` exist in `fmv.c` but
+  nothing sets or reads them.
+- Bridge limits: timestamps are simulated time, not audible onset; FFmpeg voiceover
+  and sound-stop events are outside the event stream.
+- The engine fixes in §5 are worth offering upstream to `atsb/NakedAVP`.
+- Pre-existing build warnings reported by earlier full rebuilds: C4700
+  `NewWidth`/`NewHeight` in `main.c`, C4090 const mismatch.
+
+## 10. Development log
+
+Dated entries, oldest first, moved here verbatim from the sections they used to
+interrupt. They are the evidence behind §0 and §9: what was built, how it was
+tested, and what was and was not observed. Where an entry says its changes are
+"local, uncommitted", that was true when written — all of it was committed on
+2026-09-29. Paths such as `../build/...` and `build/...` are relative to the
+repository and project root respectively and hold local, uncommitted evidence.
 
 ### Controller follow-up — 2026-09-07
 
@@ -1268,6 +1287,115 @@ All owned game sessions were closed after testing. Next live test: the user's
 normal Xbox/NVDA run, especially override approach and lift exit timing; then
 continue the unverified latter portion of Derelict from a suitable checkpoint.
 
+### Marine loot guidance — 2026-09-19
+
+Implemented locally, not committed or pushed. The feature is scoped to
+single-player Marine play. `L`, or Xbox View/Back + D-pad Left, browses useful
+supplies with needed medkits first, then other useful supplies by distance. `K`,
+or View/Back + D-pad Down, guides to the selected supply; using the same control
+again cancels supply guidance. Collection and cancellation both return to the
+prior guidance state. Medkits and armor are used automatically by touching the
+pickup. Ammunition enters inventory; weapons still use the normal Y/LB weapon
+selection and RT fire controls. Custom gameplay bindings take priority over the
+supply shortcuts.
+
+Live evidence is under
+`C:/Coding Projects/My Projects/APV Access/build/loot-review-2026-09-19/events.jsonl`.
+The main agent observed the live medkit path: a prior main-state check showed
+health 90, the selected medkit was announced and reached, the pickup speech
+request was logged, and a following state check showed health 100 with
+"Collected. Mission guidance resumed." The log also records supply browsing,
+supply guidance, a second selected weapon supply and cancellation back to mission
+route guidance. This is main-agent observed bridge evidence, not user NVDA
+confirmation.
+
+Xbox shortcut chords were exercised through engine inputs in the bridge/client
+flow; this confirms the request path at the engine boundary, not human controller
+or NVDA listening confirmation. MSVC build succeeded:
+`C:/Coding Projects/My Projects/APV Access/build/loot-build.log`. All 21
+regression runners in
+`C:/Coding Projects/My Projects/APV Access/build/loot-regressions/results.json`
+exited zero, including the new loot runner with 33 checks and the updated
+gameplay runner with 105 verified PASS assertions for View-left browse,
+View-down guide/cancel and the rest of the gameplay input suite. The checked
+owned test PID 20572 was gone. No game process was stopped during this cleanup
+pass.
+
+### Explicit snap to guidance direction — 2026-09-19
+
+Local, built, uncommitted and unpushed. Hold View/Back then click R3 to snap
+once to the active Marine guidance point. R3 alone remains history and L3 remains
+walk; no preset or saved profile changes. Input consumes the chord before history
+and respects custom bindings. Navigation uses the freshly computed route/supply
+waypoint with level pitch; nearby controls and visible combat targets include
+pitch. No automatic walking or firing. Combat identity, range and LOS are checked
+again before snapping. Lost targets, unknown routes and lift waiting refuse a
+snap. Sonar/tracker information alone is not a snap destination.
+
+`acc_snap.c` updates yaw/matrix/previous orientation and ViewPanX, clamps Marine
+pitch to +/-896, and suppresses old turning inertia and look input for that frame.
+Route target refresh suppresses pre-turn bearing speech. Existing guidance reset
+paths clear its stored snap point. Paused/dead/demo/multiplayer inputs are gated.
+
+Six affected regression runners passed (see parent `build/snap-regressions`):
+snap 17, route 83, combat 48; gameplay, loot and controller also passed. MSVC build
+passed (`build/snap-build.log`). Final-build bridge replay in
+`build/snap-final-2026-09-19` turned away from the CORR-15 opening, then View+R3
+returned yaw to the opening with only "Facing target." R3 alone still requested
+message-history speech; with guidance off the chord reported no guidance target.
+The owned replay was closed. This is engine/bridge observation, not user listening
+confirmation; live combat pitch and control interaction snapping remain to verify.
+
+### View modifier speech suppression — 2026-09-19
+
+View status now fires on a solo release, not initial press or a timer. Any other
+controller button during that hold cancels pending status, including repeated
+View chords and custom controller actions. Keyboard H remains immediate; custom
+View bindings retain their edges. Pause/focus loss, death and controller disconnect
+cancel the pending announcement. Existing bindings were not changed.
+
+Build passed (`build/view-modifier-build.log`). The gameplay fixture passed 135
+assertions, including delayed and repeated View+R3/Down/Left/Right, modifier release,
+subsequent solo tap, pause and disconnect (`build/view-modifier-input-tests.log`).
+This fix is local and built; user listening confirmation is still pending.
+
+### Visual/media audit — 2026-09-19
+
+The staged and original GOG FMVs were inventoried and fully decoded: all 77
+files match SHA-256, with no missing files or decoder errors. This covers seven
+640x360 logo/campaign movies, the 640x380 menu background, 53 128x96 plot videos,
+and 16 music files with dummy 4x4 video (15 Bink tracks plus introsound.smk).
+
+The original animated menu background was still stubbed out. It now uses a
+separate, nonblocking, looping decoder, redraws the background before menu text,
+and retains the static backdrop if unavailable. It does not advance gameplay or
+replace menu music. The obsolete hard-coded 360-line crop was removed so the
+380-line movie is preserved. Changes are local, not committed or pushed.
+
+Audit scripts, per-file hashes/metadata/decode logs and captured frames are under
+`../build/visual-audit-2026-09-19/` (local copyrighted material; do not commit).
+All seven logo/campaign movies were played through the game with sample frames
+inspected; the background movie also completed standalone playback. The first
+logo attempt ended early and was retried successfully. Movie screenshots use the
+engine software-surface capture; gameplay screenshots use the OpenGL framebuffer.
+Marine CORR-15 was inspected fullscreen with HUD, world textures, prelude overlay
+and image intensifier off/on. Dark normal lighting and green intensified lighting
+are visibly distinct. This is not a complete playthrough of all three campaigns;
+natural mission triggers and every level/special effect are not exhaustively verified.
+Validation: all 53 plot-message diagnostics exited 0 with changing frames, nonzero
+palettes and no guard timeouts. These diagnostics exercise the in-engine decoder,
+not every wall-monitor placement. The build succeeded; menu/media tests passed
+22 assertions plus the no-FFmpeg fallback API test. Restored menu screenshots
+show animation after multiple loops and no retained old menu labels; 794 of 5076
+sampled background pixels changed between late captures. Profile/main/load menu
+navigation and speech worked, followed by loading Marine CORR-15. The post-build
+logo movie was also rechecked after separating scaling from presentation.
+
+The tests used isolated copies of the Player audit profile, not SkyPulse. Bridge
+runs were muted, so audio stream decoding is verified but this audit does not
+claim a new human listening or lip-sync check. Missing-file fallback is implemented;
+the no-FFmpeg fallback was executed, but removal of the installed movie was not tested.
+
 ### Slot 2 VIEWD-05 reproduction and approach fix — 2026-09-20
 
 User supplied SkyPulse slot 2. Replayed an isolated copy as slot 1 under
@@ -1362,119 +1490,171 @@ specific failing location still needs their live retest. SkyPulse's original fil
 were not modified. The root Play AVP Access.bat uses tools/run.bat -w and the same
 build/avp.exe; use that windowed launcher per the user's confirmed visual preference.
 
-### Marine loot guidance — 2026-09-19
+### Derelict whole-map audit and exit survey — 2026-09-20
 
-Implemented locally, not committed or pushed. The feature is scoped to
-single-player Marine play. `L`, or Xbox View/Back + D-pad Left, browses useful
-supplies with needed medkits first, then other useful supplies by distance. `K`,
-or View/Back + D-pad Down, guides to the selected supply; using the same control
-again cancels supply guidance. Collection and cancellation both return to the
-prior guidance state. Medkits and armor are used automatically by touching the
-pickup. Ammunition enters inventory; weapons still use the normal Y/LB weapon
-selection and RT fire controls. Custom gameplay bindings take priority over the
-supply shortcuts.
+Local, uncommitted work. This extends the previous slot-2 fix and supersedes the
+statement that the latter half has never been traversed. It does not certify
+all optional rooms, all puzzle states, other levels, or Predator/Alien movement.
 
-Live evidence is under
-`C:/Coding Projects/My Projects/APV Access/build/loot-review-2026-09-19/events.jsonl`.
-The main agent observed the live medkit path: a prior main-state check showed
-health 90, the selected medkit was announced and reached, the pickup speech
-request was logged, and a following state check showed health 100 with
-"Collected. Mission guidance resumed." The log also records supply browsing,
-supply guidance, a second selected weapon supply and cancellation back to mission
-route guidance. This is main-agent observed bridge evidence, not user NVDA
-confirmation.
+The entire exported graph was audited: 172 AI rooms, 337 directed connections,
+no missing entries or invalid references, 127 authored waypoint volumes in seven
+complex rooms, and seven platform lifts. The local per-room report records paths
+for every room. With only the three surveyed downward shaft links allowed,
+162 rooms have a topological path to END; 110 have a path through the snapshot's
+currently AI-passable rooms. The other ten include disconnected entries and
+restricted side branches. Neither count establishes physical player clearance.
 
-Xbox shortcut chords were exercised through engine inputs in the bridge/client
-flow; this confirms the request path at the engine boundary, not human controller
-or NVDA listening confirmation. MSVC build succeeded:
-`C:/Coding Projects/My Projects/APV Access/build/loot-build.log`. All 21
-regression runners in
-`C:/Coding Projects/My Projects/APV Access/build/loot-regressions/results.json`
-exited zero, including the new loot runner with 33 checks and the updated
-gameplay runner with 105 verified PASS assertions for View-left browse,
-View-down guide/cancel and the rest of the gameplay input suite. The checked
-owned test PID 20572 was gone. No game process was stopped during this cleanup
-pass.
+The apparent restricted links 75->76->158 are the long SHIPCOR-05/JOCKEY/HOLE
+platform descent. Link 171->159 is the final lift shaft. Route search now accepts
+only these exact directed Derelict connections, matching world entry coordinates.
+Reverse climbs and other NPC-restricted links stay restricted. Guidance uses the
+lower landing goal rather than intermediate shaft portals, recognizes a moving
+platform across AI-room boundaries, waits aboard, then guides the exit. A missing
+identified platform produces a wait, not permission to walk into the shaft. The
+final platform's origin is 1945 mm above the standing-player position; its boarding
+check accounts for that measured offset only on this identified shaft.
 
-### Explicit snap to guidance direction — 2026-09-19
+Live evidence in `../build/full-route-2026-09-20/`:
+- `live/`: normal-damage replay from a private slot-2 copy, through VIEWD-05,
+  ship corridors, the long descent and HOLE, then death during Alien combat.
+  Health/armor did not decrease during that descent.
+- `survey1/`: opt-in survey run reached the actual Level Completed screen;
+  `shot-000425.png` records it. Ordinary movement, turns and firing were used;
+  no teleport, door unlock or objective manipulation. Enemies obstructing the
+  path were cleared with firing. This run preceded the final-shaft guidance fix.
+- `final/`: second replay verified explicit final-shaft boarding/wait/exit and
+  reached completion again; the new one-time `Level complete.` speech was logged.
+  It exposed a contact-gap lift exit trap, requiring a manual forward command;
+  do not treat this run as verification of the subsequent contact-gap fix.
+- `landing-check/`: replay with the contact-gap fix crossed both shafts and the
+  final doorway without the previous rising-platform trap, then reached the
+  completion screen (`shot-000446.png`) and logged `Level complete.` once. Aliens
+  physically blocking the exit and later water walkway were cleared by firing;
+  this was not an uninterrupted walking-only run. A jump attempted at the latter
+  obstruction did not clear it; shooting the blocking Alien did.
 
-Local, built, uncommitted and unpushed. Hold View/Back then click R3 to snap
-once to the active Marine guidance point. R3 alone remains history and L3 remains
-walk; no preset or saved profile changes. Input consumes the chord before history
-and respects custom bindings. Navigation uses the freshly computed route/supply
-waypoint with level pitch; nearby controls and visible combat targets include
-pitch. No automatic walking or firing. Combat identity, range and LOS are checked
-again before snapping. Lost targets, unknown routes and lift waiting refuse a
-snap. Sonar/tracker information alone is not a snap destination.
+The final lift hold is retained across a brief loss of floor contact only within
+its surveyed lower step-off area. Leaving that area or resetting guidance releases
+it. Other platforms still require contact. Final MSVC build succeeded. Nine
+affected regression runners passed (`tests.json`); route 106, lift route 36,
+traversal 51, and bridge runtime/client 49+12 checks. The last rebuild only removed
+an unused lift variable and refreshed a header comment after the live replay;
+the lift suite was rerun successfully. All owned game processes were closed.
 
-`acc_snap.c` updates yaw/matrix/previous orientation and ViewPanX, clamps Marine
-pitch to +/-896, and suppresses old turning inertia and look input for that frame.
-Route target refresh suppresses pre-turn bearing speech. Existing guidance reset
-paths clear its stored snap point. Paused/dead/demo/multiplayer inputs are gated.
+Survey mode requires both the bridge and environment `AVP_BRIDGE_SURVEY=1`.
+It makes the player immortal without healing, and suppresses route combat takeover.
+It is off for normal launches; results establish navigation, not combat survival.
+Only disposable profile copies were used. Original SkyPulse slot 2 SHA256 remains
+DCDA09695449E84F79723E93496FB6BB744E566216B250E6AD8B401D55E9E010.
+Map exports and screenshots stay outside Git. See `docs/BRIDGE.md` for survey limits.
 
-Six affected regression runners passed (see parent `build/snap-regressions`):
-snap 17, route 83, combat 48; gameplay, loot and controller also passed. MSVC build
-passed (`build/snap-build.log`). Final-build bridge replay in
-`build/snap-final-2026-09-19` turned away from the CORR-15 opening, then View+R3
-returned yaw to the opening with only "Facing target." R3 alone still requested
-message-history speech; with guidance off the chord reported no guidance target.
-The owned replay was closed. This is engine/bridge observation, not user listening
-confirmation; live combat pitch and control interaction snapping remain to verify.
+### Predator Waterfall navigation — 2026-09-20 (implemented and replay-verified)
 
-### View modifier speech suppression � 2026-09-19
+Local, uncommitted Predator support targets the first Waterfall mission only.
+Implemented support includes player status, field charge, cloak/vision and selected
+weapon speech; shared sonar/objective paths; Predator controller defaults and custom
+binding checks (the final three active Predator configuration slots); combat/loot/height
+handling; route/snap gates; and an exact Waterfall + Predator + room-94 opening-control
+matcher. Status, sonar/objectives, combat, loot and species-aware traversal are shared
+support. The Predator default controller preset assigns R3 to stored-message history;
+View+R3 still selects snap, and only exact prior defaults migrate while custom bindings
+remain intact. The opening-control matcher, surveyed fall-room run-up helper and
+final-shaft lower-stair/lift itinerary are the Waterfall-specific route additions.
+Marine behavior remains covered by
+its existing regressions. A 112-room, 160-render-module, 227-link static
+audit found 52 species-restricted links and no missing entries or invalid references.
+The fall-route helper gives manual movement cues. An optional, explicitly started
+jump assist uses normal movement requests, never writes physics state, and cancels
+when the player takes control. Keyboard J (when unbound) and View+A (when View is
+unbound and A retains default Predator Jump) start/cancel it only at the two surveyed
+staging zones with route guidance on and the opening gate unlocked.
 
-View status now fires on a solo release, not initial press or a timer. Any other
-controller button during that hold cancels pending status, including repeated
-View chords and custom controller actions. Keyboard H remains immediate; custom
-View bindings retain their edges. Pause/focus loss, death and controller disconnect
-cancel the pending announcement. Existing bindings were not changed.
+Predator equipment controls in the Xbox preset use View/Back chords: RB/LB zoom in/out,
+X requests disc recall, B selects a possessed medicomp, Y requests the grappling hook,
+and L3 taunts. Zoom reports its step (1–3) or normal view; each Predator vision cycle
+speaks the resulting mode. Medicomp uses the regular fire controls after selection (RT
+heals, LT extinguishes fire). The grappling hook remains equipment-gated, and recall
+feedback confirms a request rather than a successful return. These chords borrow only
+exact stock bindings, preserve custom View/button assignments, suppress the borrowed
+standalone action while held, and allow repeated taps while View remains down. Automated
+input and vision tests pass; this addition has not yet been live-tested with a controller
+or screen reader. The plasma caster's engine lock feedback has no new spoken accessibility
+cue in this change.
 
-Build passed (`build/view-modifier-build.log`). The gameplay fixture passed 135
-assertions, including delayed and repeated View+R3/Down/Left/Right, modifier release,
-subsequent solo tap, pause and disconnect (`build/view-modifier-input-tests.log`).
-This fix is local and built; user listening confirmation is still pending.
+Saved-profile diagnosis found why one player's pad actions had been absent while the
+sticks still moved: the existing Predator profile kept the old keyboard-only secondary
+actions, and its custom keyboard primary differed from the active default-key table.
+The old migration required a byte-for-byte primary match and compared the full secondary
+struct, including two unused expansion bytes that were zero in the profile but `KEY_VOID`
+in the legacy initializer. The focused migration now recognizes only the exact old
+active 30-slot secondary layout, accepts a primary only when it has no gamepad bindings,
+and preserves that primary and both expansion bytes. Any customized active secondary
+slot or gamepad binding in the primary blocks migration. The existing profile is read
+and upgraded in memory on load; no profile file was edited by this fix.
+The focused gameplay-input runner now passes 204 assertions, including a migrated
+saved-profile-shaped fixture for A jump, RT/LT fire, Y/LB weapon cycling, RB vision,
+D-pad Up cloak, View+RB zoom and View+X recall. These are automated input-map checks;
+they do not substitute for the player's live controller check.
 
-## 7. Debugging notes
+Automated regressions and their logs are listed in
+`../build/predator-regressions-20260920/SUMMARY.txt`. Disposable live surveys
+verified the first switch, the two surveyed jumps, gate02 into tunnl01, and the
+later route through the final shaft and airlock to the actual `Level complete`
+event. Trace4 reached that event at sequence 1834; `bridge/events.jsonl` records
+the speech and `bridge/shot-001836.png` records the completion screen under
+`../build/predator-jump-assist-trace4-20260920/`. Stage4 checkpoints include
+slot 2 at the upper start, slot 3 on the north deck, slot 4 at northeast staging,
+and slot 5 on the east deck. Stage5's original profile remains preserved at
+gate05 (slot 7 in the security area, slot 8 inside gate05). The earlier jump
+assist clone profile is `../build/predator-jump-assist-replay-20260920/profile/.avp`:
+slot 7 is after the upper switch and slot 8 is the pre-lift checkpoint in well01.
+The trace4 session directory itself has bridge logs, not a profile. In that
+clone, keyboard J completed the first
+guided jump and View+A completed the second; both landed grounded. Start/cancel
+and manual-control cancellation were also checked at staging. Earlier
+`pad_l3+pad_r3` snap and `rshift` walking observations were invalid; controls
+confirmed from `usr_io.c` are `w+lshift` to walk, `w+rshift` to jump, Space to
+interact, and `pad_view+pad_r3` to snap. Survey immortality does not stop health
+loss; completion in survey mode does not establish normal-combat survival.
 
-- Get real exit codes by running through a `.bat` that echoes `%ERRORLEVEL%`; PowerShell's
-  `$p.ExitCode` came back empty for this process. `0xC0000374` is heap corruption,
-  `0xC0000005` an access violation.
-- PowerShell needs `&` before a quoted path; cmd and bash must not have it.
-- `fflush(stderr)`-ed traces beat reasoning. The double-free looked like FFmpeg misuse for a
-  good while; the dropped frames looked like duplicate source frames, then like a bad audio
-  clock, before the real cause showed up.
-- Cross-check claims about content against the source files with `ffprobe`/`ffmpeg` before
-  concluding the code is wrong.
-- **This machine sets `NoDefaultCurrentDirectoryInExePath=1`**, so cmd refuses to run an
-  executable from the working directory unless it is written `.\name.exe`. It surfaces as
-  `'name.exe' is not recognized`, which reads like a failed build rather than a refusal to
-  execute. The test runners hit this and appeared to fail wholesale while the tests
-  themselves were fine. Always invoke built binaries with an explicit path.
-- **Keep the test suites dependent only on MSVC and PowerShell.** `tests/media` briefly
-  needed Python to extract functions from source into a fixture header; the generated
-  header is gitignored, so a machine without Python could not run that suite at all even
-  though it had everything else. Rewritten as `extract_menu.ps1`. `tests/tracker` already
-  did it this way.
+The NPC graph has a directed room-9-to-94 edge but no return edge from 94 to 9.
+The graph remains unchanged and no global waiver was added. Earlier physical
+survey play crossed the intervening gates and reached completion; it remains
+separate evidence from the targeted guided replay below. Switch6 unlocked gate03,
+switch7 opened the water gate, and switch56 changed gate05 passability before its
+physical crossing.
 
-## 8. Not yet done
+The latest route source was rebuilt with `tools/build.bat`. A targeted replay
+started from the saved pre-lift slot8 checkpoint, not a fresh campaign. Frame 1
+confirmed the player grounded in well01 at `(190386,32010,49019)`, switch11 state
+0 and lift8 disabled at upper height -2076. With route guidance enabled, the
+bounded stair approach led to the measured corner and then switch11; Interact
+changed it to state 1. The player waited, boarded, rode the lift, followed the
+north exit point `(188281,844,72090)` and west point `(182512,844,71959)`, activated
+upper switch58 and traversed the airlocks. In
+`../build/predator-final-guided-replay2-20260920/bridge-clean/events.jsonl`,
+event 392 at frame 1220 says `Level complete.` The final reply (sequence 115,
+after the owned process was quit) reports grounded in airlock03 at
+`(178935,844,101040)`. The clone profile is
+`../build/predator-final-guided-replay2-20260920/profile/profile/.avp`; it is
+separate from the preserved stage5 profile and the earlier jump-assist clone.
+This verifies the lower-lift-to-completion segment with the latest guided build,
+not a newly guided full-campaign run.
+The tested controls from `usr_io.c` are N or View+D-pad Right to toggle route
+guidance, Space or Xbox X to interact, W+Left Shift to walk, and W+Right Shift
+to jump. View+R3 snaps to guidance; keyboard J/View+A start the optional assist
+only at the two surveyed opening-jump staging points.
 
-- Remaining live controller validation: reconnection, binding capture,
-  loading prompts, and other actions/characters. Menus, Marine movement/look,
-  pause/resume, mission restart, firing, jumping and interacting are user-confirmed
-  (see §6).
-- Broader live tracker regression coverage, including save/load and lift
-  transitions. Core Marine contact detection, speech/beeps, headphone direction
-  and distance tones, empty responses, pause/resume, intensifier on/off and mission
-  restart are user-confirmed (see §6).
-- Broader live sonar coverage: lifts and moving geometry, very large rooms, and
-  whether the deliberately generous open-sector rule holds across the campaign.
-  Corridor, dead-end and opening naming, the ping timing and the wall/opening
-  distinction are user-confirmed (see §6).
-- Remaining gameplay accessibility work: complete and validate the initial route
-  guidance (see continuous guidance section above), status and
-  tracker support for Predator and Alien, and assisted targeting. §3 lists the
-  engine primitives each would build on. Route guidance is the one that decides
-  whether a level can be *finished* rather than merely navigated.
-- Briefing audio for the plot messages is listener-relative, not positioned at the screen —
-  `VolumeOfNearestVideoScreen`/`PanningOfNearestVideoScreen` exist in `fmv.c` but are never
-  set or read by anything.
+Focused suites pass route 159 and lift-route 63. The route suite pins the lower
+stair approach and passed-corner conditions; raw outputs are
+`../build/predator-regressions-20260920/route-final-shaft.log` and
+`../build/predator-regressions-20260920/lift-route-final-shaft.log`. The earlier
+trace4 physical survey separately reached `Level complete` at sequence 1834;
+the earlier opening jump-assist clone separately verified keyboard J and View+A
+through both surveyed jumps. Room82 cue stickiness was not confirmed: distances
+decreased 2356→1649→806 and the waypoint advanced. Survey mode suppresses combat
+takeover and makes the player immortal. These runs therefore do not establish
+normal-combat survival or normal combat success. NVDA speech quality and user
+controller listening/feel remain unverified. Grounded/nearly-flat contact,
+velocity and camera telemetry were observed. Static downstream notes remain in
+`../build/predator-downstream-stage3-20260920/`.
