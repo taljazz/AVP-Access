@@ -13,6 +13,8 @@
 #include "stratdef.h"
 #include "gamedef.h"
 #include "bh_types.h"
+#include "equipmnt.h"
+#include "vision.h"
 #include "acc_speech.h"
 #include "acc_status.h"
 
@@ -22,7 +24,8 @@ TEMPLATE_AMMO_DATA TemplateAmmo[MAX_NO_OF_AMMO_TEMPLATES];
 GRENADE_LAUNCHER_DATA GrenadeLauncherData;
 int AccPadTrace;
 
-static NPC_DATA npc_data[4];
+static NPC_DATA npc_data[8];
+enum VISION_MODE_ID CurrentVisionMode;
 static NPC_TYPES last_npc_type;
 static int npc_calls;
 static int npc_missing;
@@ -42,7 +45,7 @@ NPC_DATA *GetThisNpcData(NPC_TYPES type)
     ++npc_calls;
     last_npc_type = type;
     if (npc_missing) return NULL;
-    for (i = 0; i < 4; ++i) if (npc_data[i].Type == type) return &npc_data[i];
+    for (i = 0; i < 8; ++i) if (npc_data[i].Type == type) return &npc_data[i];
     return NULL;
 }
 
@@ -160,7 +163,9 @@ static void fixture(void)
 {
     static const NPC_TYPES types[] = {
         I_PC_Marine_Easy, I_PC_Marine_Medium,
-        I_PC_Marine_Hard, I_PC_Marine_Impossible
+        I_PC_Marine_Hard, I_PC_Marine_Impossible,
+        I_PC_Predator_Easy, I_PC_Predator_Medium,
+        I_PC_Predator_Hard, I_PC_Predator_Impossible
     };
     int i;
     memset(&AvP, 0, sizeof(AvP));
@@ -180,10 +185,10 @@ static void fixture(void)
     player.Armour = 20 * ONE_FIXED;
     for (i = 0; i < MAX_NO_OF_WEAPON_SLOTS; ++i)
         player.WeaponSlot[i].WeaponIDNumber = NULL_WEAPON;
-    for (i = 0; i < 4; ++i) {
+    for (i = 0; i < 8; ++i) {
         npc_data[i].Type = types[i];
-        npc_data[i].StartingStats.Health = i == 3 ? 25 : 100;
-        npc_data[i].StartingStats.Armour = i == 3 ? 8 : 20;
+        npc_data[i].StartingStats.Health = (i == 3 || i == 7) ? 25 : 100;
+        npc_data[i].StartingStats.Armour = (i == 3 || i == 7) ? 8 : 20;
     }
     for (i = 0; i < MAX_NO_OF_WEAPON_TEMPLATES; ++i) {
         TemplateWeapon[i].PrimaryAmmoID = AMMO_NONE;
@@ -219,6 +224,36 @@ static void fixture(void)
     TemplateAmmo[AMMO_FRAGMENTATION_GRENADE].ShortName = TEXTSTRING_AMMO_SHORTNAME_FRAGMENTATION_GRENADE;
     TemplateAmmo[AMMO_PROXIMITY_GRENADE].ShortName = TEXTSTRING_AMMO_SHORTNAME_PROXIMITY_GRENADE;
     select_weapon(WEAPON_SMARTGUN);
+}
+
+static void predator_status(void)
+{
+    PLAYER_WEAPON_DATA *weapon;
+    fixture(); AvP.PlayerType=I_Predator; player.Health=50*ONE_FIXED;
+    player.FieldCharge=15*ONE_FIXED; player.cloakOn=1;
+    CurrentVisionMode=VISION_MODE_PRED_THERMAL;
+    weapon=select_weapon(WEAPON_PRED_SHOULDERCANNON);
+    TemplateWeapon[WEAPON_PRED_SHOULDERCANNON].Name=TEXTSTRING_INGAME_PULSERIFLE;
+    player.PlasmaCasterCharge=0;
+    check(AccStatus_FormatPredator(&player,text,sizeof(text)) && find_ci(text,"health 50 percent") &&
+          find_ci(text,"field charge 15 seconds") && find_ci(text,"cloak on") && find_ci(text,"thermal vision") &&
+          find_ci(text,"plasma caster charge 0 percent"),
+          "Predator reports health, field energy, cloak, current vision and empty caster charge");
+    player.PlasmaCasterCharge=ONE_FIXED/2;
+    check(AccStatus_FormatPredator(&player,text,sizeof(text)) && find_ci(text,"plasma caster charge 50 percent"),
+          "Predator plasma caster charge uses its 16.16 full-charge scale");
+    player.PlasmaCasterCharge=ONE_FIXED;
+    check(AccStatus_FormatPredator(&player,text,sizeof(text)) && find_ci(text,"plasma caster charge 100 percent") &&
+          find_ci(text,"field charge 15 seconds"),
+          "Predator reports full plasma charge without inventing a loaded-ammunition counter");
+    weapon=select_weapon(WEAPON_PRED_RIFLE);
+    weapon->PrimaryRoundsRemaining=7*ONE_FIXED; weapon->PrimaryMagazinesRemaining=2;
+    check(AccStatus_FormatPredator(&player,text,sizeof(text)) && find_ci(text,"7 shots loaded") &&
+          find_ci(text,"2 spare magazines"),"Predator reports rifle ammunition and spare magazines");
+    select_weapon(WEAPON_PRED_MEDICOMP);
+    check(AccStatus_FormatPredator(&player,text,sizeof(text)) && find_ci(text,"medicomp") &&
+          find_ci(text,"field charge to heal") && find_ci(text,"10 seconds"),
+          "Predator explains that medicomp healing spends field charge and needs its real threshold");
 }
 
 static void health(void)
@@ -451,6 +486,20 @@ static void announcement(void)
           "the next request reads current state rather than cached health and ammunition");
 }
 
+static void predator_vision(void)
+{
+    static const int modes[] = {VISION_MODE_PRED_THERMAL, VISION_MODE_PRED_SEEALIENS,
+        VISION_MODE_PRED_SEEPREDTECH, VISION_MODE_NORMAL};
+    static const char *expected[] = {"Thermal vision.", "See aliens vision.",
+        "Predator technology vision.", "Normal vision."};
+    int i;
+    for (i = 0; i < 4; ++i) {
+        AccStatus_AnnouncePredatorVision(modes[i]);
+        check(speech_calls == i + 1 && last_interrupt == 1 && !strcmp(spoken, expected[i]),
+              "vision mode transition speaks its current mode");
+    }
+}
+
 static void unavailable_data(void)
 {
     static const int invalid_text_ids[] = {-1, MIN_NEW_TEXTSTRINGS, MAX_NEW_TEXTSTRINGS};
@@ -516,6 +565,7 @@ int main(int argc, char **argv)
     if (argc != 2) { fprintf(stderr, "Usage: status_tests CASE\n"); return 2; }
     fixture();
     if (!strcmp(argv[1], "health")) health();
+    else if (!strcmp(argv[1], "predator")) predator_status();
     else if (!strcmp(argv[1], "health_edges")) health_edges();
     else if (!strcmp(argv[1], "primary_ammo")) primary_ammo();
     else if (!strcmp(argv[1], "pulse")) pulse();
@@ -525,6 +575,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[1], "invalid_weapon")) invalid_weapon();
     else if (!strcmp(argv[1], "suppressed")) suppressed();
     else if (!strcmp(argv[1], "announcement")) announcement();
+    else if (!strcmp(argv[1], "predator_vision")) predator_vision();
     else if (!strcmp(argv[1], "unavailable_data")) unavailable_data();
     else if (!strcmp(argv[1], "buffers")) buffers();
     else { fprintf(stderr, "Unknown case: %s\n", argv[1]); return 2; }

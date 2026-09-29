@@ -22,7 +22,7 @@ if errorlevel 1 exit /b 2
 cl.exe /nologo /TC /MD /Od /W3 /DWIN32 /D_WINDOWS /I"%TEST_SOURCE_DIR%." /I"%TEST_SDL%" /I"%TEST_PROJECT%\src" /I"%TEST_PROJECT%\src\include" /I"%TEST_PROJECT%\src\win95" /I"%TEST_PROJECT%\src\avp" /I"%TEST_PROJECT%\src\avp\win95" /I"%TEST_PROJECT%\src\avp\win95\frontend" /I"%TEST_PROJECT%\src\avp\support" /I"%TEST_PROJECT%\src\access" /Fe"status_tests.exe" "status_tests.c" "%TEST_SOURCE%"
 if errorlevel 1 goto :compile_failed
 set "TEST_RESULT=0"
-for %%t in (health health_edges primary_ammo pulse dual_pistols grenades fuel invalid_weapon suppressed announcement unavailable_data buffers) do call :run_case %%t
+for %%t in (health health_edges primary_ammo pulse dual_pistols grenades fuel invalid_weapon suppressed announcement predator_vision unavailable_data buffers predator) do call :run_case %%t
 popd
 exit /b %TEST_RESULT%
 :run_case

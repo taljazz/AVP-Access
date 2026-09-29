@@ -23,6 +23,7 @@
 #include "usr_io.h"
 #include "hud.h"
 #include "messagehistory.h"
+#include "inventry.h"
 
 #include "iofocus.h"
 
@@ -33,11 +34,68 @@
 #include "acc_status.h"
 #include "acc_sonar.h"
 #include "acc_objectives.h"
+#include "acc_route.h"
+#include "acc_route_targets.h"
+#include "acc_jump_assist.h"
+#include "acc_jump_assist_runtime.h"
+#include "acc_snap.h"
+#include "acc_speech.h"
 #include "acc_tracker.h"
 #include "acc_bridge.h"
 #include <SDL3/SDL_timer.h>
 #include <stdio.h>
 #include <string.h>
+
+extern char LevelName[];
+
+static ACC_JUMP_ASSIST_STATE AccJumpAssistState;
+static int AccJumpAssistLastAction = -1;
+static int AccJumpAssistGateUnlocked;
+static int AccJumpAssistChordAOwned;
+static unsigned char AccPredatorEquipmentChordOwned[MAX_NUMBER_OF_INPUT_KEYS];
+static int AccPredatorEquipmentChordAction;
+static int AccPredatorEquipmentChordTriggered;
+static int AccAccess_ViewPending;
+
+enum ACC_PREDATOR_EQUIPMENT_ACTION
+{
+	ACC_PRED_EQ_NONE,
+	ACC_PRED_EQ_ZOOM_IN,
+	ACC_PRED_EQ_ZOOM_OUT,
+	ACC_PRED_EQ_RECALL_DISC,
+	ACC_PRED_EQ_MEDICOMP,
+	ACC_PRED_EQ_GRAPPLE,
+	ACC_PRED_EQ_TAUNT
+};
+
+typedef struct acc_predator_equipment_chord
+{
+	int key;
+	int action;
+} ACC_PREDATOR_EQUIPMENT_CHORD;
+
+static const ACC_PREDATOR_EQUIPMENT_CHORD AccPredatorEquipmentChords[] =
+{
+	{KEY_JOYSTICK_BUTTON_6, ACC_PRED_EQ_ZOOM_IN},       /* View + RB */
+	{KEY_JOYSTICK_BUTTON_5, ACC_PRED_EQ_ZOOM_OUT},      /* View + LB */
+	{KEY_JOYSTICK_BUTTON_3, ACC_PRED_EQ_RECALL_DISC},   /* View + X */
+	{KEY_JOYSTICK_BUTTON_2, ACC_PRED_EQ_MEDICOMP},      /* View + B */
+	{KEY_JOYSTICK_BUTTON_4, ACC_PRED_EQ_GRAPPLE},      /* View + Y */
+	{KEY_JOYSTICK_BUTTON_11, ACC_PRED_EQ_TAUNT}         /* View + L3 */
+};
+
+int AccJumpAssist_IsActive(void)
+{
+	return AccJumpAssistState.phase != ACC_JUMP_ASSIST_PHASE_IDLE;
+}
+
+void AccJumpAssist_ResetRuntime(void)
+{
+	AccJumpAssist_Reset(&AccJumpAssistState);
+	AccJumpAssistLastAction = -1;
+	AccJumpAssistGateUnlocked = 0;
+	AccJumpAssistChordAOwned = 0;
+}
 
 extern int InGameMenusAreRunning(void);
 extern void AvP_TriggerInGameMenus(void);
@@ -703,6 +761,18 @@ static const PLAYER_INPUT_CONFIGURATION LegacyMarineInputSecondaryConfig =
     {KEY_VOID}
 };
 
+/* Preserve the language-specific primary Predator layout. Upgrade only the
+   shipped secondary defaults; customized profile bindings are user data. */
+static const PLAYER_INPUT_CONFIGURATION LegacyPredatorInputSecondaryConfig =
+{
+	KEY_VOID, KEY_VOID, KEY_VOID, KEY_VOID, KEY_VOID, KEY_VOID, KEY_VOID,
+	KEY_NUMPAD8, KEY_NUMPAD2, KEY_NUMPAD5, KEY_VOID, KEY_VOID, KEY_MMOUSE,
+	KEY_CR, KEY_NUMPAD0, KEY_NUMPADDEL, {KEY_VOID}, {KEY_VOID}, {KEY_VOID},
+	{KEY_VOID}, {KEY_VOID}, {KEY_MOUSEWHEELUP}, {KEY_MOUSEWHEELDOWN},
+	{KEY_VOID}, {KEY_VOID}, {KEY_VOID}, {KEY_VOID}, KEY_VOID, KEY_VOID,
+	KEY_VOID, KEY_VOID
+};
+
 /* AVP Access: preserve custom bindings while upgrading the old secondary
    defaults. Compare all bytes, including unused slots, and leave the primary
    keyboard/mouse mapping intact. The configured primary default may have been
@@ -739,6 +809,64 @@ int AccPad_UpgradeLegacyMarineBindings(
     return 0;
 }
 
+static int AccPredator_PrimaryHasPadBinding(const PLAYER_INPUT_CONFIGURATION *primary)
+{
+	const unsigned char *keys = (const unsigned char *)primary;
+	int i;
+	if (!primary) return 1;
+	for (i = 0; i < NUMBER_OF_PREDATOR_INPUTS; ++i)
+		if (keys[i] >= KEY_JOYSTICK_BUTTON_1 && keys[i] <= KEY_JOYSTICK_BUTTON_16)
+			return 1;
+	return 0;
+}
+
+static int AccPredator_MatchesLegacySecondary(const PLAYER_INPUT_CONFIGURATION *secondary)
+{
+	/* Only the 30 active Predator slots identify this shipped layout. Older
+	   profile writers left the two expansion bytes as zero, while the static
+	   table initializer uses KEY_VOID there. */
+	return secondary && memcmp(secondary, &LegacyPredatorInputSecondaryConfig,
+		NUMBER_OF_PREDATOR_INPUTS) == 0;
+}
+
+static void AccPredator_InstallPadSecondary(PLAYER_INPUT_CONFIGURATION *secondary)
+{
+	unsigned char expansion7 = secondary->ExpansionSpace7;
+	unsigned char expansion8 = secondary->ExpansionSpace8;
+	*secondary = DefaultPredatorInputSecondaryConfig;
+	secondary->ExpansionSpace7 = expansion7;
+	secondary->ExpansionSpace8 = expansion8;
+}
+
+int AccPad_UpgradeLegacyPredatorBindings(
+	const PLAYER_INPUT_CONFIGURATION *primary,
+	PLAYER_INPUT_CONFIGURATION *secondary)
+{
+	if (!primary || !secondary || AccPredator_PrimaryHasPadBinding(primary)) return 0;
+	/* A language-specific or user-custom keyboard primary is compatible: pad
+	   defaults go in the secondary table. Keep that primary byte-for-byte. */
+	if (AccPredator_MatchesLegacySecondary(secondary)) {
+		AccPredator_InstallPadSecondary(secondary);
+		return 1;
+	}
+
+	/* Earlier profiles may already have the pad preset, but not R3 history.
+	   Limit this migration to the exact active preset while allowing a keyboard
+	   primary; preserve its expansion bytes as profile-owned data. */
+	if (secondary->k.Predator_MessageHistory == KEY_VOID) {
+		PLAYER_INPUT_CONFIGURATION probe = *secondary;
+		probe.k.Predator_MessageHistory =
+			DefaultPredatorInputSecondaryConfig.k.Predator_MessageHistory;
+		if (memcmp(&probe, &DefaultPredatorInputSecondaryConfig,
+			NUMBER_OF_PREDATOR_INPUTS) == 0) {
+			secondary->k.Predator_MessageHistory = probe.k.Predator_MessageHistory;
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 
 
 
@@ -758,28 +886,28 @@ PLAYER_INPUT_CONFIGURATION DefaultPredatorInputSecondaryConfig =
 	KEY_NUMPAD2,		// LookDown;
 	KEY_NUMPAD5,		// CentreView;
 
-	KEY_VOID,		// Walk;
-	KEY_VOID, 		// Crouch;
-	KEY_MMOUSE,			// Jump;
+	KEY_JOYSTICK_BUTTON_11,		// Walk;
+	KEY_JOYSTICK_BUTTON_2, 		// Crouch;
+	KEY_JOYSTICK_BUTTON_1,		// Jump;
 
-	KEY_CR,				// Operate;
+	KEY_JOYSTICK_BUTTON_3,		// Operate;
 
-	KEY_NUMPAD0, 		// FirePrimaryWeapon;
-	KEY_NUMPADDEL, 		// FireSecondaryWeapon;
+	KEY_JOYSTICK_BUTTON_8,		// FirePrimaryWeapon;
+	KEY_JOYSTICK_BUTTON_7,		// FireSecondaryWeapon;
 
-    {KEY_VOID},			// NextWeapon;
-    {KEY_VOID}, 		// PreviousWeapon;
+    {KEY_JOYSTICK_BUTTON_4},	// NextWeapon;
+    {KEY_JOYSTICK_BUTTON_5},	// PreviousWeapon;
     {KEY_VOID},			// FlashbackWeapon;
 	
-    {KEY_VOID},	 		// Cloak;
-    {KEY_VOID},	 		// CycleVisionMode;
+    {KEY_JOYSTICK_BUTTON_13},	// Cloak;
+    {KEY_JOYSTICK_BUTTON_6},	// CycleVisionMode;
     {KEY_MOUSEWHEELUP},	// ZoomIn;
     {KEY_MOUSEWHEELDOWN},	// ZoomOut;
     {KEY_VOID},	 		// GrapplingHook;
     {KEY_VOID},			// RecallDisk
     {KEY_VOID},			// Taunt
 	
-    {KEY_VOID},
+    {KEY_JOYSTICK_BUTTON_12}, /* Predator_MessageHistory: R3 */
     KEY_VOID,
     KEY_VOID,
     KEY_VOID
@@ -1006,11 +1134,278 @@ static int AccAccess_KeyIsBound(int key, const PLAYER_INPUT_CONFIGURATION *prima
 	const unsigned char *p = (const unsigned char *)primary;
 	const unsigned char *s = (const unsigned char *)secondary;
 	int i;
-	for (i = 0; i < NUMBER_OF_MARINE_INPUTS; i++)
-		if (p[i] == key || s[i] == key) return 1;
+	if (AvP.PlayerType == I_Predator) i = NUMBER_OF_PREDATOR_INPUTS;
+	else if (AvP.PlayerType == I_Alien) i = NUMBER_OF_ALIEN_INPUTS;
+	else i = NUMBER_OF_MARINE_INPUTS;
+	{
+		int count = i;
+		for (i = 0; i < count; i++)
+			if (p[i] == key || s[i] == key) return 1;
+	}
 	return 0;
 }
 
+static int AccAccess_FixedKeyIsBound(int key)
+{
+	const unsigned char *p = (const unsigned char *)&FixedInputConfig;
+	size_t i;
+	for (i = 0; i < sizeof(FixedInputConfig); ++i)
+		if (p[i] == key) return 1;
+	return 0;
+}
+
+static void AccPredator_ClearChordBinding(PLAYER_INPUT_CONFIGURATION *config, int action, int key)
+{
+	switch (action) {
+		case ACC_PRED_EQ_ZOOM_IN: if (config->e.CycleVisionMode == key) config->e.CycleVisionMode = KEY_VOID; break;
+		case ACC_PRED_EQ_ZOOM_OUT: if (config->b.PreviousWeapon == key) config->b.PreviousWeapon = KEY_VOID; break;
+		case ACC_PRED_EQ_RECALL_DISC: if (config->Operate == key) config->Operate = KEY_VOID; break;
+		case ACC_PRED_EQ_MEDICOMP: if (config->Crouch == key) config->Crouch = KEY_VOID; break;
+		case ACC_PRED_EQ_GRAPPLE: if (config->a.NextWeapon == key) config->a.NextWeapon = KEY_VOID; break;
+		case ACC_PRED_EQ_TAUNT: if (config->Walk == key) config->Walk = KEY_VOID; break;
+		default: break;
+	}
+}
+
+static int AccPredator_ChordBindingIsDefault(const ACC_PREDATOR_EQUIPMENT_CHORD *chord,
+	const PLAYER_INPUT_CONFIGURATION *primary, const PLAYER_INPUT_CONFIGURATION *secondary)
+{
+	PLAYER_INPUT_CONFIGURATION p, s;
+	unsigned char binding = KEY_VOID;
+	if (!chord || !primary || !secondary ||
+	    AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_9, primary, secondary) ||
+	    AccAccess_FixedKeyIsBound(KEY_JOYSTICK_BUTTON_9) ||
+	    AccAccess_FixedKeyIsBound(chord->key)) return 0;
+	switch (chord->action) {
+		case ACC_PRED_EQ_ZOOM_IN: binding = secondary->e.CycleVisionMode; break;
+		case ACC_PRED_EQ_ZOOM_OUT: binding = secondary->b.PreviousWeapon; break;
+		case ACC_PRED_EQ_RECALL_DISC: binding = secondary->Operate; break;
+		case ACC_PRED_EQ_MEDICOMP: binding = secondary->Crouch; break;
+		case ACC_PRED_EQ_GRAPPLE: binding = secondary->a.NextWeapon; break;
+		case ACC_PRED_EQ_TAUNT: binding = secondary->Walk; break;
+		default: return 0;
+	}
+	/* The chord may borrow only the exact stock gamepad binding in the
+	   secondary preset. A remap in either preset or another action wins. */
+	if (binding != chord->key) return 0;
+	p = *primary; s = *secondary;
+	AccPredator_ClearChordBinding(&s, chord->action, chord->key);
+	return !AccAccess_KeyIsBound(chord->key, &p, &s);
+}
+
+static int AccPredator_EquipmentChordMask(PLAYER_STATUS *player,
+	const PLAYER_INPUT_CONFIGURATION *primary, const PLAYER_INPUT_CONFIGURATION *secondary,
+	PLAYER_INPUT_CONFIGURATION *maskedPrimary, PLAYER_INPUT_CONFIGURATION *maskedSecondary)
+{
+	int i, candidates = 0, heldCandidates = 0, selected = -1, active = 0, alreadyHeld = 0;
+	int canExecute;
+	if (!player || !primary || !secondary || !maskedPrimary || !maskedSecondary) return 0;
+	if (AvP.PlayerType != I_Predator) {
+		memset(AccPredatorEquipmentChordOwned, 0, sizeof(AccPredatorEquipmentChordOwned));
+		AccPredatorEquipmentChordAction = ACC_PRED_EQ_NONE;
+		return 0;
+	}
+	*maskedPrimary = *primary;
+	*maskedSecondary = *secondary;
+	for (i = 0; i < (int)(sizeof(AccPredatorEquipmentChords)/sizeof(AccPredatorEquipmentChords[0])); ++i) {
+		const ACC_PREDATOR_EQUIPMENT_CHORD *chord = &AccPredatorEquipmentChords[i];
+		if (AccPredatorEquipmentChordOwned[chord->key]) {
+			if (!KeyboardInput[chord->key]) AccPredatorEquipmentChordOwned[chord->key] = 0;
+			else {
+				AccPredator_ClearChordBinding(maskedPrimary, chord->action, chord->key);
+				AccPredator_ClearChordBinding(maskedSecondary, chord->action, chord->key);
+				alreadyHeld = active = 1;
+			}
+		}
+	}
+	if (!KeyboardInput[KEY_JOYSTICK_BUTTON_9])
+		AccPredatorEquipmentChordOwned[KEY_JOYSTICK_BUTTON_9] = 0;
+	canExecute = IOFOCUS_AcceptControls() && !InGameMenusAreRunning() && player->IsAlive &&
+		!player->DemoMode && !AvP.LevelCompleted;
+	if (!KeyboardInput[KEY_JOYSTICK_BUTTON_9]) return active;
+	for (i = 0; i < (int)(sizeof(AccPredatorEquipmentChords)/sizeof(AccPredatorEquipmentChords[0])); ++i) {
+		const ACC_PREDATOR_EQUIPMENT_CHORD *chord = &AccPredatorEquipmentChords[i];
+		if (KeyboardInput[chord->key] && AccPredator_ChordBindingIsDefault(chord, primary, secondary)) {
+			++heldCandidates;
+			if (DebouncedKeyboardInput[chord->key]) { ++candidates; selected = i; }
+		}
+	}
+	if (!heldCandidates) return active;
+	AccPredatorEquipmentChordOwned[KEY_JOYSTICK_BUTTON_9] = 1;
+	AccAccess_ViewPending = 0;
+	DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9] = 0;
+	for (i = 0; i < (int)(sizeof(AccPredatorEquipmentChords)/sizeof(AccPredatorEquipmentChords[0])); ++i) {
+		const ACC_PREDATOR_EQUIPMENT_CHORD *chord = &AccPredatorEquipmentChords[i];
+		if (KeyboardInput[chord->key] && AccPredator_ChordBindingIsDefault(chord, primary, secondary)) {
+			AccPredatorEquipmentChordOwned[chord->key] = 1;
+			DebouncedKeyboardInput[chord->key] = 0;
+		}
+	}
+	for (i = 0; i < (int)(sizeof(AccPredatorEquipmentChords)/sizeof(AccPredatorEquipmentChords[0])); ++i)
+		if (AccPredatorEquipmentChordOwned[AccPredatorEquipmentChords[i].key]) {
+			AccPredator_ClearChordBinding(maskedPrimary, AccPredatorEquipmentChords[i].action,
+				AccPredatorEquipmentChords[i].key);
+			AccPredator_ClearChordBinding(maskedSecondary, AccPredatorEquipmentChords[i].action,
+				AccPredatorEquipmentChords[i].key);
+		}
+	AccPredatorEquipmentChordAction = (canExecute && candidates == 1 && heldCandidates == 1 && !alreadyHeld)
+		? AccPredatorEquipmentChords[selected].action : -1;
+	AccPredatorEquipmentChordTriggered = canExecute && candidates > 0;
+	if (canExecute && candidates > 0 && (candidates > 1 || heldCandidates > 1 || alreadyHeld))
+		AccSpeech_Say("Use one equipment chord at a time.", 1);
+	return 1;
+}
+
+static int AccJumpAssist_DefaultAJump(const PLAYER_INPUT_CONFIGURATION *primary,
+	const PLAYER_INPUT_CONFIGURATION *secondary)
+{
+	PLAYER_INPUT_CONFIGURATION p, s;
+	if (AvP.PlayerType != I_Predator || !primary || !secondary ||
+	    secondary->Jump != KEY_JOYSTICK_BUTTON_1) return 0;
+	p = *primary; s = *secondary;
+	/* A is eligible only when the default secondary Jump is its sole binding.
+	   Every custom action, including a primary Jump remap, takes priority. */
+	s.Jump = KEY_VOID;
+	return !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_1, &p, &s);
+}
+
+static int AccJumpAssist_ManualInput(const PLAYER_STATUS *player)
+{
+	return (player->Mvt_InputRequests.Mask & ~INPUT_BITMASK_FASTER) != 0 ||
+	       player->Mvt_MotionIncrement != 0 || player->Mvt_TurnIncrement != 0 ||
+	       player->Mvt_PitchIncrement != 0 || player->Mvt_SideStepIncrement != 0 ||
+	       !player->Mvt_InputRequests.Flags.Rqst_Faster;
+}
+
+static void AccJumpAssist_SayAction(int action)
+{
+	const char *text = NULL;
+	if (action == AccJumpAssistLastAction) return;
+	switch (action) {
+		case ACC_JUMP_ASSIST_ALIGN_YAW: text = "Jump assist active. Moving the controls cancels assistance. Aligning."; break;
+		case ACC_JUMP_ASSIST_RUN_FORWARD: text = "Running to the launch point."; break;
+		case ACC_JUMP_ASSIST_JUMP_ONCE: text = "Jumping."; break;
+		case ACC_JUMP_ASSIST_CONTINUE_FLIGHT: text = "Crossing the gap."; break;
+		case ACC_JUMP_ASSIST_DONE: text = "Landing confirmed. Jump assist complete."; break;
+		case ACC_JUMP_ASSIST_RECOVER: text = "Jump not confirmed. Stop and return to a surveyed staging point."; break;
+		case ACC_JUMP_ASSIST_CANCELLED: text = "Jump assist cancelled. Your controls are yours."; break;
+		case ACC_JUMP_ASSIST_NOT_ELIGIBLE: text = "Jump assist is unavailable here. Use route guidance at a surveyed launch point."; break;
+	}
+	AccJumpAssistLastAction = action;
+	if (text) AccSpeech_Say(text, 1);
+}
+
+/* Consumes only explicit, unbound starts. The returned flag keeps route
+   automation from replacing the player's bounded maneuver this frame. */
+static int AccJumpAssist_HandleInput(STRATEGYBLOCK *strategy, PLAYER_STATUS *player,
+	const PLAYER_INPUT_CONFIGURATION *primary, const PLAYER_INPUT_CONFIGURATION *secondary,
+	int snapRequest)
+{
+	DYNAMICSBLOCK *d = strategy ? strategy->DynPtr : NULL;
+	int active = AccJumpAssist_IsActive();
+	int keyboardStart, gamepadStart, start, gateUnlocked = 0, room = -1, gateResult = 0;
+	int assistFrame = 0;
+	ACC_JUMP_ASSIST_INPUT input;
+	ACC_JUMP_ASSIST_OUTPUT output;
+	VECTORCH gatePosition;
+	STRATEGYBLOCK *gateControl = NULL;
+	keyboardStart = AvP.PlayerType == I_Predator && DebouncedKeyboardInput[KEY_J] &&
+		!AccAccess_KeyIsBound(KEY_J, primary, secondary);
+	gamepadStart = AvP.PlayerType == I_Predator && KeyboardInput[KEY_JOYSTICK_BUTTON_9] &&
+		DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_1] &&
+		!AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_9, primary, secondary) &&
+		AccJumpAssist_DefaultAJump(primary, secondary);
+	start = keyboardStart || gamepadStart;
+	if (keyboardStart) DebouncedKeyboardInput[KEY_J] = 0;
+	if (gamepadStart)
+		DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_1] = 0;
+	if (!active && !start) return 0;
+	memset(&input, 0, sizeof(input));
+	input.level_name = LevelName;
+	input.is_predator = AvP.PlayerType == I_Predator;
+	input.room_index = strategy && strategy->containingModule && strategy->containingModule->m_aimodule
+		? strategy->containingModule->m_aimodule->m_index : -1;
+	if (d) {
+		input.grounded = d->IsInContactWithFloor;
+		input.foot_x = d->Position.vx; input.foot_y = d->Position.vy; input.foot_z = d->Position.vz;
+		input.yaw = d->OrientEuler.EulerY;
+		input.velocity_x = d->LinVelocity.vx; input.velocity_z = d->LinVelocity.vz;
+	}
+	input.now_ms = AccBridge_NowMs();
+	if (start && !active && !snapRequest && !AccJumpAssist_ManualInput(player) &&
+	    !AccPredatorEquipmentChordTriggered) {
+		if (IOFOCUS_AcceptControls() && !InGameMenusAreRunning() && player->IsAlive &&
+		    !player->DemoMode && !AvP.LevelCompleted && AvP.Network == I_No_Network &&
+		    AccRoute_IsEnabled() && d && input.room_index == 94 &&
+		    !strcmp(LevelName, "fall")) {
+			gateResult = AccRoute_FallPredatorOpening(&d->Position, &gatePosition, &gateControl);
+			gateUnlocked = gateResult == 2;
+			if (gateUnlocked) AccJumpAssistGateUnlocked = 1;
+		}
+		input.gate_unlocked = gateUnlocked;
+		if (gateUnlocked) input.explicit_start = 1;
+	} else if (start && active) {
+		input.cancel = 1;
+	} else if (active) {
+		input.gate_unlocked = AccJumpAssistGateUnlocked;
+		input.cancel = !player->IsAlive || player->DemoMode || AvP.LevelCompleted ||
+			AvP.Network != I_No_Network || !IOFOCUS_AcceptControls() ||
+			InGameMenusAreRunning() || !AccRoute_IsEnabled() || !d ||
+			AccJumpAssist_ManualInput(player) || snapRequest || AccPredatorEquipmentChordTriggered;
+	}
+	if (start && !active && snapRequest) {
+		AccSpeech_Say("Jump assist not started because snap was requested.", 1);
+		return 0;
+	}
+	if (start && !active && AccPredatorEquipmentChordTriggered) {
+		AccSpeech_Say("Jump assist not started because equipment was requested.", 1);
+		return 0;
+	}
+	if (start && !active && AccJumpAssist_ManualInput(player)) {
+		AccJumpAssist_SayAction(ACC_JUMP_ASSIST_NOT_ELIGIBLE);
+		return 0;
+	}
+	if (start && !active && !input.explicit_start) {
+		if (!AccRoute_IsEnabled()) AccSpeech_Say("Turn route guidance on before starting jump assist.", 1);
+		else AccJumpAssist_SayAction(ACC_JUMP_ASSIST_NOT_ELIGIBLE);
+		return 0;
+	}
+	assistFrame = active || input.explicit_start;
+	{
+		int phaseBefore = AccJumpAssistState.phase;
+	if (!AccJumpAssist_Update(&input, &AccJumpAssistState, &output)) return assistFrame;
+	if (AccPadTrace && (output.action == ACC_JUMP_ASSIST_RECOVER ||
+	    phaseBefore == ACC_JUMP_ASSIST_PHASE_JUMP_PENDING ||
+	    (phaseBefore == ACC_JUMP_ASSIST_PHASE_FLIGHT && input.grounded))) {
+		fprintf(stderr, "ACCJUMP TRACE: t=%u phase_start=%u phase=%d->%d action=%d failure=%d pos=(%d,%d,%d) grounded=%d room=%d yaw=%d vel=(%d,%d) gate=%d\n",
+			input.now_ms, AccJumpAssistState.phase_started_ms, phaseBefore,
+			AccJumpAssistState.phase, output.action,
+			output.failure_reason, input.foot_x, input.foot_y, input.foot_z,
+			input.grounded, input.room_index, input.yaw, input.velocity_x,
+			input.velocity_z, input.gate_unlocked);
+		fflush(stderr);
+	}
+	AccJumpAssist_SayAction(output.action);
+	if (output.action == ACC_JUMP_ASSIST_ALIGN_YAW) {
+		AccSnap_FaceYaw(output.desired_yaw);
+	} else if (output.action == ACC_JUMP_ASSIST_RUN_FORWARD ||
+		   output.action == ACC_JUMP_ASSIST_JUMP_ONCE ||
+		   output.action == ACC_JUMP_ASSIST_WAIT_TAKEOFF ||
+		   output.action == ACC_JUMP_ASSIST_CONTINUE_FLIGHT) {
+		player->Mvt_InputRequests.Flags.Rqst_Forward = 1;
+		player->Mvt_InputRequests.Flags.Rqst_Faster = 1;
+		player->Mvt_MotionIncrement = ONE_FIXED;
+		if (output.action == ACC_JUMP_ASSIST_JUMP_ONCE)
+			player->Mvt_InputRequests.Flags.Rqst_Jump = 1;
+	}
+	if (output.action == ACC_JUMP_ASSIST_DONE || output.action == ACC_JUMP_ASSIST_CANCELLED ||
+	    output.action == ACC_JUMP_ASSIST_RECOVER || output.action == ACC_JUMP_ASSIST_NOT_ELIGIBLE)
+		AccJumpAssistLastAction = -1, AccJumpAssistGateUnlocked = 0;
+	return assistFrame;
+	}
+}
+
+static int AccAccess_ViewPending;
 static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSBLOCK *dynamics,
     const PLAYER_INPUT_CONFIGURATION *primary,
     const PLAYER_INPUT_CONFIGURATION *secondary)
@@ -1018,12 +1413,28 @@ static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSB
 	int statusKeyboard, statusGamepad, trackerKeyboard, trackerGamepad;
 	int sonarKeyboard, sonarGamepad, objectivesKeyboard, objectivesGamepad;
 	int wantTracker, wantSonar, wantObjectives;
-	if (AvP.PlayerType != I_Marine || !player->IsAlive || player->DemoMode
-	    || AvP.LevelCompleted || !IOFOCUS_AcceptControls() || InGameMenusAreRunning()) return;
+	int routeKeyboard, routeGamepad;
+	int lootKeyboard, lootGamepad, lootGoKeyboard, lootGoGamepad;
+	int viewEdge, key;
+	if ((AvP.PlayerType != I_Marine && AvP.PlayerType != I_Predator) || !player->IsAlive || player->DemoMode
+	    || AvP.LevelCompleted || !IOFOCUS_AcceptControls() || InGameMenusAreRunning()) {
+	    AccAccess_ViewPending=0; return;
+	}
 	statusKeyboard = DebouncedKeyboardInput[KEY_H]
 	    && !AccAccess_KeyIsBound(KEY_H, primary, secondary);
-	statusGamepad = DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9]
+	viewEdge = DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9]
 	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_9, primary, secondary);
+	/* View is a modifier. Announce status only after a solo press is released,
+	   never while the player is still choosing the second chord button. */
+	if(viewEdge) AccAccess_ViewPending=1;
+	if(AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_9,primary,secondary) || !AccPad_IsPresent())
+	    AccAccess_ViewPending=0;
+	for(key=KEY_JOYSTICK_BUTTON_1;key<=KEY_JOYSTICK_BUTTON_16;++key)
+	    if(key!=KEY_JOYSTICK_BUTTON_9 && (KeyboardInput[key] || DebouncedKeyboardInput[key]))
+	        AccAccess_ViewPending=0;
+	if(statusKeyboard) AccAccess_ViewPending=0;
+	statusGamepad=AccAccess_ViewPending && !KeyboardInput[KEY_JOYSTICK_BUTTON_9];
+	if(!KeyboardInput[KEY_JOYSTICK_BUTTON_9]) AccAccess_ViewPending=0;
 	trackerKeyboard = DebouncedKeyboardInput[KEY_T]
 	    && !AccAccess_KeyIsBound(KEY_T, primary, secondary);
 	trackerGamepad = DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14]
@@ -1036,6 +1447,40 @@ static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSB
 	    && !AccAccess_KeyIsBound(KEY_O, primary, secondary);
 	objectivesGamepad = DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_16]
 	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_16, primary, secondary);
+	routeKeyboard = DebouncedKeyboardInput[KEY_N]
+	    && !AccAccess_KeyIsBound(KEY_N, primary, secondary);
+	routeGamepad = KeyboardInput[KEY_JOYSTICK_BUTTON_9]
+	    && KeyboardInput[KEY_JOYSTICK_BUTTON_16]
+	    && (DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9]
+	        || DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_16])
+	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_9, primary, secondary)
+	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_16, primary, secondary);
+	if (routeGamepad) {
+		statusGamepad = objectivesGamepad = 0;
+		DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9] = 0;
+		DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_16] = 0;
+	}
+	lootKeyboard = DebouncedKeyboardInput[KEY_L] && !AccAccess_KeyIsBound(KEY_L, primary, secondary);
+	lootGoKeyboard = DebouncedKeyboardInput[KEY_K] && !AccAccess_KeyIsBound(KEY_K, primary, secondary);
+	lootGamepad = KeyboardInput[KEY_JOYSTICK_BUTTON_9] && KeyboardInput[KEY_JOYSTICK_BUTTON_15]
+	    && (DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9] || DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_15])
+	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_9, primary, secondary)
+	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_15, primary, secondary);
+	lootGoGamepad = KeyboardInput[KEY_JOYSTICK_BUTTON_9] && KeyboardInput[KEY_JOYSTICK_BUTTON_14]
+	    && (DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9] || DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14])
+	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_9, primary, secondary)
+	    && !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_14, primary, secondary);
+	if(lootGamepad) {
+	    statusGamepad=sonarGamepad=0;
+	    DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9]=DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_15]=0;
+	}
+	if(lootGoGamepad) {
+	    statusGamepad=trackerGamepad=0;
+	    DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9]=DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_14]=0;
+	}
+	/* Keep the edge available through chord detection, then consume even when
+	   solo status is deferred. Custom View actions retain their original edge. */
+	if(viewEdge) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9]=0;
 
 	/* Both the tracker and the sonar need the player's position and heading;
 	   the objective list does not. */
@@ -1043,7 +1488,8 @@ static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSB
 	wantSonar = (sonarKeyboard || sonarGamepad) && dynamics != NULL;
 	wantObjectives = objectivesKeyboard || objectivesGamepad;
 	if (!statusKeyboard && !statusGamepad && !wantTracker && !wantSonar
-	    && !wantObjectives) return;
+	    && !wantObjectives && !routeKeyboard && !routeGamepad
+	    && !lootKeyboard && !lootGamepad && !lootGoKeyboard && !lootGoGamepad) return;
 
 	/* Consume only our unbound shortcuts so another read in this same frame
 	   cannot repeat the announcement. Leave custom gameplay bindings intact. */
@@ -1055,11 +1501,22 @@ static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSB
 	if (sonarGamepad) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_15] = 0;
 	if (objectivesKeyboard) DebouncedKeyboardInput[KEY_O] = 0;
 	if (objectivesGamepad) DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_16] = 0;
-	/* One readout per frame, so two shortcuts pressed together cannot talk over
-	   each other. Ordered by urgency: your own condition, then what is hunting
+	if (routeKeyboard) DebouncedKeyboardInput[KEY_N] = 0;
+	if (lootKeyboard) DebouncedKeyboardInput[KEY_L] = 0;
+	if (lootGoKeyboard) DebouncedKeyboardInput[KEY_K] = 0;
+	/* One request per frame. The guidance toggle has priority so it can always
+	   be stopped; then your own condition, then what is hunting
 	   you, then the shape of the room, then the mission. Every edge is consumed
 	   above regardless, so a losing request cannot fire again next frame. */
-	if (statusKeyboard || statusGamepad) AccStatus_AnnounceMarine(player);
+	if (routeKeyboard || routeGamepad) AccRoute_Toggle();
+	else if (lootGoKeyboard || lootGoGamepad) AccRoute_ToggleLoot();
+	else if (lootKeyboard || lootGamepad) AccRoute_CycleLoot();
+	else if (statusKeyboard || statusGamepad) {
+		if (AvP.PlayerType == I_Predator) AccStatus_AnnouncePredator(player);
+		else AccStatus_AnnounceMarine(player);
+	}
+	else if (wantTracker && AvP.PlayerType == I_Predator)
+		AccSpeech_Say("The Marine motion tracker is not available to the Predator. Use Predator vision modes and targeting guidance.", 1);
 	else if (wantTracker)
 		AccTracker_Announce(&dynamics->Position, dynamics->OrientEuler.EulerY);
 	else if (wantSonar)
@@ -1075,9 +1532,15 @@ static void AccAccess_CheckRequests(const PLAYER_STATUS *player, const DYNAMICSB
    NB Currently, only keyboard input is supported. */
 void ReadPlayerGameInput(STRATEGYBLOCK* sbPtr)
 {
+	int snapRequest=0;
+	int suppressDefaultAJump=0;
+	int jumpAssistFrame=0;
+	int equipmentChordActive=0;
 	PLAYER_INPUT_CONFIGURATION *primaryInput;
 	PLAYER_INPUT_CONFIGURATION *secondaryInput;
+	PLAYER_INPUT_CONFIGURATION maskedPrimary, maskedSecondary;
 	PLAYER_STATUS *playerStatusPtr;
+	AccPredatorEquipmentChordTriggered = 0;
 
     /* get the player status block ... */
     playerStatusPtr = (PLAYER_STATUS *) (sbPtr->SBdataptr);
@@ -1101,14 +1564,118 @@ void ReadPlayerGameInput(STRATEGYBLOCK* sbPtr)
 			secondaryInput = &PredatorInputSecondaryConfig;
 			break;
 		}
-		case I_Alien:
+	case I_Alien:
 		{
 			primaryInput = &AlienInputPrimaryConfig;
 			secondaryInput = &AlienInputSecondaryConfig;
 			break;
 		}
 	}
+	equipmentChordActive = AccPredator_EquipmentChordMask(playerStatusPtr,
+		primaryInput, secondaryInput, &maskedPrimary, &maskedSecondary);
+	if (AvP.PlayerType == I_Predator) {
+		if (equipmentChordActive) {
+			primaryInput = &maskedPrimary;
+			secondaryInput = &maskedSecondary;
+			if (AccPredatorEquipmentChordTriggered) {
+				switch (AccPredatorEquipmentChordAction) {
+					case ACC_PRED_EQ_ZOOM_IN:
+					{
+						extern int CameraZoomLevel;
+						int previous = CameraZoomLevel;
+						if (CameraZoomLevel < 3) ++CameraZoomLevel;
+						if (CameraZoomLevel != previous) {
+							if (CameraZoomLevel == 0) AccSpeech_Say("Normal view.", 1);
+						else {
+							char text[48];
+							snprintf(text, sizeof(text), "Zoom level %d of 3.", CameraZoomLevel);
+							AccSpeech_Say(text, 1);
+						}
+						}
+						break;
+					}
+					case ACC_PRED_EQ_ZOOM_OUT:
+					{
+						extern int CameraZoomLevel;
+						int previous = CameraZoomLevel;
+						if (CameraZoomLevel > 0) --CameraZoomLevel;
+						if (CameraZoomLevel != previous) {
+							if (CameraZoomLevel == 0) AccSpeech_Say("Normal view.", 1);
+							else {
+							char text[48];
+							snprintf(text, sizeof(text), "Zoom level %d of 3.", CameraZoomLevel);
+							AccSpeech_Say(text, 1);
+						}
+						}
+						break;
+					}
+					case ACC_PRED_EQ_RECALL_DISC:
+						Recall_Disc();
+						AccSpeech_Say("Disc recall requested.", 1);
+						break;
+					case ACC_PRED_EQ_MEDICOMP:
+					{
+						int slot = SlotForThisWeapon(WEAPON_PRED_MEDICOMP);
+						if (slot >= 0 && playerStatusPtr->WeaponSlot[slot].Possessed == 1) {
+							playerStatusPtr->Mvt_InputRequests.Flags.Rqst_WeaponNo = slot + 1;
+							AccSpeech_Say("Selecting Predator medicomp.", 1);
+						} else AccSpeech_Say("Predator medicomp is unavailable.", 1);
+						break;
+					}
+					case ACC_PRED_EQ_GRAPPLE:
+#if !(PREDATOR_DEMO||DEATHMATCH_DEMO)
+						if (playerStatusPtr->GrapplingHookEnabled) {
+							playerStatusPtr->Mvt_InputRequests.Flags.Rqst_GrapplingHook = 1;
+							AccSpeech_Say("Grappling hook requested.", 1);
+						} else AccSpeech_Say("Grappling hook unavailable with current equipment.", 1);
+#else
+						AccSpeech_Say("Grappling hook is unavailable in this edition.", 1);
+#endif
+						break;
+					case ACC_PRED_EQ_TAUNT:
+						if (playerStatusPtr->tauntTimer) AccSpeech_Say("Taunt already active.", 1);
+						else { StartPlayerTaunt(); AccSpeech_Say("Taunt started.", 1); }
+						break;
+					default: break;
+				}
+			}
+		}
+	}
+	/* Reserve View+A before the bound Jump mapping runs. The handler consumes
+	   the edge later, whether it starts or safely rejects the request. */
+	if (!KeyboardInput[KEY_JOYSTICK_BUTTON_9] && !KeyboardInput[KEY_JOYSTICK_BUTTON_1])
+		AccJumpAssistChordAOwned = 0;
+	if (AvP.PlayerType == I_Predator && KeyboardInput[KEY_JOYSTICK_BUTTON_9] &&
+	    KeyboardInput[KEY_JOYSTICK_BUTTON_1] &&
+	    !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_9, primaryInput, secondaryInput) &&
+	    AccJumpAssist_DefaultAJump(primaryInput, secondaryInput))
+		AccJumpAssistChordAOwned = 1;
+	if (AvP.PlayerType == I_Predator && KeyboardInput[KEY_JOYSTICK_BUTTON_1] &&
+	    AccJumpAssistChordAOwned &&
+	    !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_9, primaryInput, secondaryInput) &&
+	    AccJumpAssist_DefaultAJump(primaryInput, secondaryInput))
+		suppressDefaultAJump = 1;
 
+	/* Claim View+R3 before the ordinary message-history action sees R3.
+	   Only the history binding is allowed to share R3; custom actions win. */
+	if((AvP.PlayerType==I_Marine || AvP.PlayerType==I_Predator) && AvP.Network==I_No_Network && playerStatusPtr->IsAlive &&
+	   !playerStatusPtr->DemoMode && !AvP.LevelCompleted && IOFOCUS_AcceptControls() &&
+	   !InGameMenusAreRunning() && KeyboardInput[KEY_JOYSTICK_BUTTON_9] &&
+	   DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_12]) {
+	    PLAYER_INPUT_CONFIGURATION p=*primaryInput,s=*secondaryInput;
+	    if(AvP.PlayerType==I_Marine) {
+	        if(p.h.Marine_MessageHistory==KEY_JOYSTICK_BUTTON_12) p.h.Marine_MessageHistory=KEY_VOID;
+	        if(s.h.Marine_MessageHistory==KEY_JOYSTICK_BUTTON_12) s.h.Marine_MessageHistory=KEY_VOID;
+	    } else {
+	        if(p.k.Predator_MessageHistory==KEY_JOYSTICK_BUTTON_12) p.k.Predator_MessageHistory=KEY_VOID;
+	        if(s.k.Predator_MessageHistory==KEY_JOYSTICK_BUTTON_12) s.k.Predator_MessageHistory=KEY_VOID;
+	    }
+	    if(!AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_9,&p,&s) &&
+	       !AccAccess_KeyIsBound(KEY_JOYSTICK_BUTTON_12,&p,&s)) {
+	        snapRequest=1;
+	        DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_9]=DebouncedKeyboardInput[KEY_JOYSTICK_BUTTON_12]=0;
+	    }
+	}
 	if ( IOFOCUS_AcceptControls() && !InGameMenusAreRunning())
 	{
 		/* now do forward,backward,left,right,up and down 
@@ -1165,7 +1732,8 @@ void ReadPlayerGameInput(STRATEGYBLOCK* sbPtr)
 			playerStatusPtr->Mvt_InputRequests.Flags.Rqst_Crouch = 1;
 		
 		if(KeyboardInput[primaryInput->Jump]
-		 ||KeyboardInput[secondaryInput->Jump])
+		 ||(KeyboardInput[secondaryInput->Jump] &&
+		    !(suppressDefaultAJump && secondaryInput->Jump == KEY_JOYSTICK_BUTTON_1)))
 			playerStatusPtr->Mvt_InputRequests.Flags.Rqst_Jump = 1;
 
 		if(KeyboardInput[primaryInput->Operate]
@@ -1584,7 +2152,9 @@ void ReadPlayerGameInput(STRATEGYBLOCK* sbPtr)
 	/* KJL 18:27:34 04/29/97 - joystick control */
 	if (GotJoystick && IOFOCUS_AcceptControls() && !InGameMenusAreRunning())
 	{
-		#define JOYSTICK_DEAD_ZONE 12000
+		/* SDL pads already have a rescaled dead zone. Applying the legacy
+		   threshold again would erase fine movement and reintroduce a jump. */
+		const int JOYSTICK_DEAD_ZONE = AccPad_IsPresent() ? 0 : 12000;
 		extern JOYINFOEX JoystickData;
 		extern JOYCAPS JoystickCaps;
 		
@@ -1855,6 +2425,7 @@ void ReadPlayerGameInput(STRATEGYBLOCK* sbPtr)
 	#endif
 	if (DebouncedKeyboardInput[KEY_GRAVE]) IOFOCUS_Toggle();
 	AccAccess_CheckRequests(playerStatusPtr, sbPtr->DynPtr, primaryInput, secondaryInput);
+	jumpAssistFrame=AccJumpAssist_HandleInput(sbPtr, playerStatusPtr, primaryInput, secondaryInput, snapRequest);
 	/* Plays the sweep tones a sonar request scheduled, spread over time so the
 	   fan is heard moving left to right rather than as one chord. The bridge
 	   clock is real time except while a bridge session holds time, when the
@@ -1862,6 +2433,12 @@ void ReadPlayerGameInput(STRATEGYBLOCK* sbPtr)
 	AccBridge_BeginCue("sonar", -1);
 	AccSonar_Update(AccBridge_NowMs());
 	AccBridge_EndCue();
+	if ((!jumpAssistFrame || AccJumpAssist_IsActive()) &&
+	    (AvP.PlayerType == I_Marine || AvP.PlayerType == I_Predator) && playerStatusPtr->IsAlive && !playerStatusPtr->DemoMode
+	    && !AvP.LevelCompleted && IOFOCUS_AcceptControls() && !InGameMenusAreRunning())
+		AccRoute_Update(AccBridge_NowMs());
+	if(snapRequest && IOFOCUS_AcceptControls() && !InGameMenusAreRunning())
+		AccSnap_Request(AccBridge_NowMs());
 	AccPad_TraceGameInput(playerStatusPtr, primaryInput, secondaryInput);
 }
 

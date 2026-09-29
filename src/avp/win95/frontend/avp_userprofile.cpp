@@ -271,6 +271,9 @@ extern void GetSettingsFromUserProfile(void)
 	AccPad_UpgradeLegacyMarineBindings(
 		&UserProfilePtr->MarineInputPrimaryConfig,
 		&UserProfilePtr->MarineInputSecondaryConfig);
+	AccPad_UpgradeLegacyPredatorBindings(
+		&UserProfilePtr->PredatorInputPrimaryConfig,
+		&UserProfilePtr->PredatorInputSecondaryConfig);
 
 	RequestedGammaSetting = UserProfilePtr->GammaSetting;
 

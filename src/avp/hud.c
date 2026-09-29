@@ -27,6 +27,7 @@
 #include "acc_tracker.h"
 #include "acc_sonar.h"
 #include "acc_objectives.h"
+#include "acc_route.h"
 #include "acc_bridge.h"
 #include "psndplat.h"
 #include "dynamics.h"
@@ -204,6 +205,7 @@ static void ResetMotionTrackerHUD(void)
 
 void AccTracker_ResetHUD(void)
 {
+	AccRoute_Reset();
 	AccSonar_Reset();
 	ResetMotionTrackerHUD();
 }
@@ -334,10 +336,13 @@ void MaintainHUD(void)
 	if (!trackerActive) ResetMotionTrackerHUD();
 	/* Sonar is independent of the visual tracker and intensifier. Cancel it
 	   only when gameplay is unavailable, not on every non-normal-vision frame. */
-	if (AvP.PlayerType!=I_Marine || !playerStatusPtr->IsAlive
+	if ((AvP.PlayerType!=I_Marine && AvP.PlayerType!=I_Predator) || !playerStatusPtr->IsAlive
 		|| Observer || playerStatusPtr->MyFaceHugger || playerStatusPtr->DemoMode
 		|| AvP.LevelCompleted || InGameMenusAreRunning() || !IOFOCUS_AcceptControls())
+	{
 		AccSonar_Reset();
+		AccRoute_Reset();
+	}
 
 //	RenderSmokeTest();
 	PlatformSpecificEnteringHUD();

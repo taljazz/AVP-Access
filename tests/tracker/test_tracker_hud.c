@@ -26,8 +26,9 @@ void AccTracker_Reset(void) { reset_calls++; published_count=0; }
 
 /* Tracker eligibility, sonar cancellation and objective cycling have distinct
    lifecycles: changing vision must not reset the latter two. */
-static int sonar_resets, objective_resets;
+static int sonar_resets, objective_resets, route_resets;
 void AccSonar_Reset(void) { ++sonar_resets; }
+void AccRoute_Reset(void) { ++route_resets; }
 void AccObjectives_Reset(void) { ++objective_resets; }
 void AccTracker_SetContacts(const ACC_TRACKER_CONTACT *contacts,int count,int range)
 { published_count=count; published_range=range; memcpy(published,contacts,count*sizeof(*contacts)); }
@@ -59,7 +60,7 @@ static void setup(void)
     Observer=0; menus=0; accepts_controls=1;
     reset_calls=stop_calls=beep_calls=click_calls=0;
     cue_depth=click_tagged=0;
-    sonar_resets=objective_resets=0;
+    sonar_resets=objective_resets=route_resets=0;
     MTScanLineSize=ONE_FIXED; PreviousMTScanLineSize=0;
 }
 
@@ -173,11 +174,11 @@ static void eligibility_tests(void)
     INELIGIBLE(player_status.MyFaceHugger=&objects[0],"facehugger suppresses and resets tracker");
     INELIGIBLE(AvP.PlayerType=I_Alien,"other species suppresses and resets tracker");
     INELIGIBLE(CurrentVisionMode=(enum VISION_MODE_ID)(VISION_MODE_NORMAL+1),"other vision suppresses and resets tracker");
-    check(!sonar_resets && !objective_resets,"vision changes preserve sonar and objective cycling");
+    check(!sonar_resets && !objective_resets && !route_resets,"vision changes preserve sonar, guidance and objective cycling");
     setup(); menus=1; TestHUDTrackerEligibility(&player_status);
-    check(sonar_resets==1 && !objective_resets,"pause cancels sonar without restarting the objective cycle");
+    check(sonar_resets==1 && route_resets==1 && !objective_resets,"pause cancels sonar and guidance without restarting the objective cycle");
     setup(); AccTracker_ResetHUD();
-    check(sonar_resets==1 && !objective_resets,"explicit HUD reset cancels sonar without restarting objectives");
+    check(sonar_resets==1 && route_resets==1 && !objective_resets,"explicit HUD reset cancels sonar and guidance without restarting objectives");
 #undef INELIGIBLE
 }
 

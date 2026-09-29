@@ -5,6 +5,8 @@
 #include "gamedef.h"
 #include "bh_types.h"
 #include "language.h"
+#include "equipmnt.h"
+#include "vision.h"
 
 #include "acc_status.h"
 #include "acc_speech.h"
@@ -45,6 +47,16 @@ static const NPC_DATA *MarineStartingStats(void)
         case I_Hard: return GetThisNpcData(I_PC_Marine_Hard);
         case I_Impossible: return GetThisNpcData(I_PC_Marine_Impossible);
         default: return GetThisNpcData(I_PC_Marine_Medium);
+    }
+}
+
+static const NPC_DATA *PredatorStartingStats(void)
+{
+    switch (AvP.Difficulty) {
+        case I_Easy: return GetThisNpcData(I_PC_Predator_Easy);
+        case I_Hard: return GetThisNpcData(I_PC_Predator_Hard);
+        case I_Impossible: return GetThisNpcData(I_PC_Predator_Impossible);
+        default: return GetThisNpcData(I_PC_Predator_Medium);
     }
 }
 
@@ -124,6 +136,54 @@ int AccStatus_FormatMarine(const struct player_status *player, char *text, size_
     return 1;
 }
 
+int AccStatus_FormatPredator(const struct player_status *player, char *text, size_t size)
+{
+    const NPC_DATA *npc;
+    const PLAYER_WEAPON_DATA *weapon;
+    const char *name, *vision;
+    int slot, id;
+    if (!text || !size) return 0;
+    text[0] = 0;
+    if (!player || AvP.PlayerType != I_Predator || !player->IsAlive || player->DemoMode) return 0;
+    npc = PredatorStartingStats();
+    if (!AppendPercent(text, size, "Health", player->Health, npc ? npc->StartingStats.Health : 0) ||
+        !Append(text, size, "Field charge %u seconds of 30. Cloak %s. ",
+            (unsigned int)Rounds((unsigned int)player->FieldCharge), player->cloakOn ? "on" : "off")) return 0;
+    switch (CurrentVisionMode) {
+        case VISION_MODE_PRED_THERMAL: vision = "Thermal vision"; break;
+        case VISION_MODE_PRED_SEEALIENS: vision = "See aliens vision"; break;
+        case VISION_MODE_PRED_SEEPREDTECH: vision = "Predator technology vision"; break;
+        default: vision = "Normal vision"; break;
+    }
+    if (!Append(text, size, "%s. ", vision)) return 0;
+    slot = (int)player->SelectedWeaponSlot;
+    if (slot < 0 || slot >= MAX_NO_OF_WEAPON_SLOTS)
+        return Append(text, size, "Weapon status unavailable.");
+    weapon = &player->WeaponSlot[slot];
+    id = (int)weapon->WeaponIDNumber;
+    if (weapon->Possessed != 1 || id < WEAPON_PRED_WRISTBLADE || id > WEAPON_PRED_STAFF)
+        return Append(text, size, "Weapon status unavailable.");
+    name = TextOrFallback(TemplateWeapon[id].Name, "Predator weapon");
+    if (!Append(text, size, "%.128s. ", name)) return 0;
+    if (id == WEAPON_PRED_WRISTBLADE || id == WEAPON_PRED_STAFF)
+        return Append(text, size, "Melee weapon. No ammunition required.");
+    if (id == WEAPON_PRED_MEDICOMP)
+        return Append(text, size, "Medicomp uses field charge to heal; keep at least 10 seconds of charge.");
+    if (id == WEAPON_PRED_PISTOL)
+        return Append(text, size, "Energy weapon. Field charge %u seconds.",
+                      (unsigned int)Rounds((unsigned int)player->FieldCharge));
+    if (id == WEAPON_PRED_SHOULDERCANNON)
+    {
+        unsigned int plasma = player->PlasmaCasterCharge < 0 ? 0u : (unsigned int)player->PlasmaCasterCharge;
+        unsigned int percent = (plasma * 100u + 32768u) / 65536u;
+        if (percent > 100u) percent = 100u;
+        return Append(text, size, "Plasma caster charge %u percent. Field charge %u seconds.", percent,
+                      (unsigned int)Rounds((unsigned int)player->FieldCharge));
+    }
+    return Append(text, size, "%u shots loaded, %u spare magazines.",
+                  Rounds(weapon->PrimaryRoundsRemaining), (unsigned int)weapon->PrimaryMagazinesRemaining);
+}
+
 void AccStatus_AnnounceMarine(const struct player_status *player)
 {
     char text[768];
@@ -134,4 +194,27 @@ void AccStatus_AnnounceMarine(const struct player_status *player)
     }
     /* An explicit request should be immediate and can repeat identical status. */
     AccSpeech_Say(text, 1);
+}
+
+void AccStatus_AnnouncePredator(const struct player_status *player)
+{
+    char text[768];
+    if (!AccStatus_FormatPredator(player, text, sizeof(text))) return;
+    if (AccPadTrace) {
+        fprintf(stderr, "ACCSTATUS: speech=%d %s\n", AccSpeech_IsAvailable(), text);
+        fflush(stderr);
+    }
+    AccSpeech_Say(text, 1);
+}
+
+void AccStatus_AnnouncePredatorVision(int visionMode)
+{
+    const char *name;
+    switch (visionMode) {
+        case VISION_MODE_PRED_THERMAL: name = "Thermal vision."; break;
+        case VISION_MODE_PRED_SEEALIENS: name = "See aliens vision."; break;
+        case VISION_MODE_PRED_SEEPREDTECH: name = "Predator technology vision."; break;
+        default: name = "Normal vision."; break;
+    }
+    AccSpeech_Say(name, 1);
 }

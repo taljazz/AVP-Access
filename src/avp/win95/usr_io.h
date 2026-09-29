@@ -323,6 +323,9 @@ void LoadDefaultPrimaryConfigs(void);
 int AccPad_UpgradeLegacyMarineBindings(
     const PLAYER_INPUT_CONFIGURATION *primary,
     PLAYER_INPUT_CONFIGURATION *secondary);
+int AccPad_UpgradeLegacyPredatorBindings(
+    const PLAYER_INPUT_CONFIGURATION *primary,
+    PLAYER_INPUT_CONFIGURATION *secondary);
 
 #ifdef __cplusplus
 	};

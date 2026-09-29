@@ -18,6 +18,7 @@ rounds fired etc etc etc*/
 #include "psnd.h"
 #include "weapons.h"
 #include "inventry.h"
+#include "acc_loot.h"
 
 /* for win95 net game support */
 #include "pldnet.h"
@@ -1456,6 +1457,8 @@ extern void RemovePickedUpObject(STRATEGYBLOCK *objectPtr)
 {
 	INANIMATEOBJECT_STATUSBLOCK* objStatPtr = objectPtr->SBdataptr;
 	GLOBALASSERT(objectPtr->I_SBtype == I_BehaviourInanimateObject);
+	/* Accepted pickup only: capture identity before destruction/respawn. */
+	AccLoot_PickedUp(objectPtr);
 
 	/* patrick, for e3- add a sound effect to explosions */
 	switch(objStatPtr->typeId)

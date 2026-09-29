@@ -58,7 +58,8 @@ typedef enum {
     ACC_BRIDGE_TURN,      /* turn by an angle using the player's turn keys */
     ACC_BRIDGE_SHOT,      /* capture the screen */
     ACC_BRIDGE_SOUNDS,    /* log every game sound, or accessibility cues only */
-    ACC_BRIDGE_QUIT       /* close the game */
+    ACC_BRIDGE_QUIT,      /* close the game */
+    ACC_BRIDGE_MAP        /* export local map data; does not advance the game */
 } ACC_BRIDGE_VERB;
 
 typedef struct {

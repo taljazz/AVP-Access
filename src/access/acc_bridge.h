@@ -45,6 +45,8 @@ struct vectorch;
 /* From the command line. `dir` may be NULL for the default. */
 void AccBridge_Enable(const char *dir, int audible);
 int  AccBridge_IsActive(void);
+/* Opt-in isolated survey mode: bridge active and AVP_BRIDGE_SURVEY exactly "1". */
+int  AccBridge_IsSurvey(void);
 
 /* Whether game audio should be silenced (bridge active and not audible). */
 int  AccBridge_Muted(void);

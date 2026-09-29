@@ -19,6 +19,10 @@
 extern "C" {
 #endif
 
+/* Transient identity, only for visible, achievable, unfinished objectives.
+   Never retain across frames, save/load, or a level transition. */
+void *AccObjectives_RouteObjective(int index);
+
 /* Implemented in missions.cpp, where the objective list lives. Index counts
    visible objectives only. */
 int AccObjectives_Count(void);

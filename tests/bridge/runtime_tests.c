@@ -18,6 +18,7 @@ AVP_GAME_DESC AvP;
 DISPLAYBLOCK *Player;
 PLAYER_STATUS *PlayerStatusPtr;
 MODULE *playerPherModule;
+VIEWDESCRIPTORBLOCK *Global_VDB_Ptr;
 int GlobalFrameCounter;
 char LevelName[40] = "fixture";
 unsigned char KeyboardInput[MAX_NUMBER_OF_INPUT_KEYS];
@@ -28,14 +29,27 @@ PLAYER_INPUT_CONFIGURATION MarineInputPrimaryConfig, MarineInputSecondaryConfig;
 PLAYER_INPUT_CONFIGURATION AlienInputPrimaryConfig, AlienInputSecondaryConfig;
 PLAYER_INPUT_CONFIGURATION PredatorInputPrimaryConfig, PredatorInputSecondaryConfig;
 static int presses, releases, failures, checks;
+static int map_export_calls, map_export_result = 1;
+static char map_export_path[760];
+static char map_export_error[128];
 void AccSpeech_SetObserver(ACC_SPEECH_OBSERVER observer, int suppress) { (void)observer; (void)suppress; }
 int InGameMenusAreRunning(void) { return 0; }
 int AccStatus_FormatMarine(const struct player_status *p, char *text, size_t size)
+{ (void)p; if (size) text[0] = 0; return 0; }
+int AccStatus_FormatPredator(const struct player_status *p, char *text, size_t size)
 { (void)p; if (size) text[0] = 0; return 0; }
 unsigned char *GetScreenShot24(int *width, int *height)
 { (void)width; (void)height; return NULL; }
 void AccBridge_PlatformKey(int key, int press)
 { KeyboardInput[key] = (unsigned char)press; if (press) presses++; else releases++; }
+int AccMap_Export(const char *path, char *error, size_t errorSize)
+{
+    map_export_calls++;
+    snprintf(map_export_path, sizeof(map_export_path), "%s", path);
+    if (!map_export_result && errorSize)
+        snprintf(error, errorSize, "%s", map_export_error);
+    return map_export_result;
+}
 
 static void check(int condition, const char *description)
 { checks++; if (!condition) { failures++; printf("FAIL: %s\n", description); } }
@@ -144,11 +158,126 @@ static void held_close(void)
     SDL_Quit();
 }
 
+static void map_command(void)
+{
+    DISPLAYBLOCK display;
+    STRATEGYBLOCK strategy;
+    DYNAMICSBLOCK dynamics;
+    VIEWDESCRIPTORBLOCK view;
+    char expectedPath[760];
+    int priorFrame, priorPresses, priorReleases;
+
+    memset(&display, 0, sizeof(display));
+    memset(&strategy, 0, sizeof(strategy));
+    memset(&dynamics, 0, sizeof(dynamics));
+    memset(&view, 0, sizeof(view));
+    strategy.DynPtr = &dynamics;
+    display.ObStrategyBlock = &strategy;
+    Player = &display;
+
+    AccBridge_Start();
+    InGameplay = 0;
+    command("1 map");
+    AccBridge_Service();
+    check(reply_contains("\"result\":\"error\"") && strstr(ReplyError, "gameplay"),
+          "map is rejected outside gameplay");
+    check(map_export_calls == 0, "menu rejection does not call exporter");
+
+    InGameplay = 1;
+    StepMode = 0; /* let Service poll without granting or simulating a game frame */
+    priorFrame = GlobalFrameCounter;
+    priorPresses = presses;
+    priorReleases = releases;
+    PathFor("map.json", expectedPath, sizeof(expectedPath));
+    command("2 map");
+    AccBridge_Service();
+    check(map_export_calls == 1 && !strcmp(map_export_path, expectedPath),
+          "gameplay map command exports to this session's map.json");
+    check(reply_contains("\"result\":\"ok\"") && reply_contains("\"detail\":\"map.json\""),
+          "successful export returns map.json detail");
+    check(GlobalFrameCounter == priorFrame && presses == priorPresses && releases == priorReleases
+          && !Runner.active && !FrameGranted,
+          "map does not advance a frame or inject input");
+
+    map_export_result = 0;
+    snprintf(map_export_error, sizeof(map_export_error), "fixture export failure");
+    command("3 map");
+    AccBridge_Service();
+    check(map_export_calls == 2 && reply_contains("\"result\":\"error\"")
+          && reply_contains("fixture export failure"),
+          "exporter failure is propagated to the reply");
+    map_export_result = 1;
+
+    dynamics.Position = (VECTORCH){101, 202, 303};
+    dynamics.LinVelocity = (VECTORCH){-100, 200, -300};
+    dynamics.IsInContactWithFloor = 1;
+    dynamics.IsInContactWithNearlyFlatFloor = 0;
+    view.VDB_World = (VECTORCH){404, 505, 606};
+    Global_VDB_Ptr = &view;
+    command("4 state");
+    AccBridge_Service();
+    check(reply_contains("\"grounded\":true") && reply_contains("\"nearly_flat\":false"),
+          "state reply reports engine floor-contact flags");
+    check(reply_contains("\"velocity\":{\"x\":-100,\"y\":200,\"z\":-300}"),
+          "state reply reports world-space linear velocity");
+    check(reply_contains("\"camera\":{\"x\":404,\"y\":505,\"z\":606}"),
+          "state reply reports camera world position");
+
+    Global_VDB_Ptr = NULL;
+    command("5 state");
+    AccBridge_Service();
+    check(reply_contains("\"camera\":null"), "missing camera descriptor is reported as null");
+    Player = NULL;
+}
+
+static void survey_mode(void)
+{
+    PLAYER_STATUS status;
+    memset(&status, 0, sizeof(status));
+    PlayerStatusPtr = &status;
+    check(AccBridge_IsActive() && AccBridge_IsSurvey(),
+          "survey mode requires active bridge and exact environment opt-in");
+    AccBridge_Start();
+    AccBridge_EnterGameplay();
+    check(status.IsImmortal == 1, "survey gameplay enables immortality without resetting other status");
+    status.Health = 37;
+    status.Armour = 19;
+    AccBridge_Service();
+    check(status.IsImmortal == 1 && status.Health == 37 && status.Armour == 19,
+          "gameplay service reapplies immortality without changing health or armor");
+
+    _putenv_s("AVP_BRIDGE_SURVEY", "01");
+    AccBridge_Service();
+    check(!AccBridge_IsSurvey() && status.IsImmortal == 0,
+          "non-exact opt-in disables survey and restores prior immortality");
+    _putenv_s("AVP_BRIDGE_SURVEY", "1");
+    AccBridge_Service();
+    check(status.IsImmortal == 1, "exact opt-in reapplies immortality during gameplay");
+    AccBridge_LeaveGameplay();
+    check(status.IsImmortal == 0, "leaving gameplay restores prior immortality");
+
+    status.IsImmortal = 1;
+    AccBridge_EnterGameplay();
+    AccBridge_Service();
+    AccBridge_LeaveGameplay();
+    check(status.IsImmortal == 1, "survey preserves pre-existing immortality state");
+    PlayerStatusPtr = NULL;
+    _putenv_s("AVP_BRIDGE_SURVEY", "");
+}
+
 int main(int argc, char **argv)
 {
     char root[760];
+    int survey_inactive;
     if (argc != 3) return 2;
     snprintf(root, sizeof(root), "%s", argv[2]);
+    survey_inactive = !strcmp(argv[1], "survey_inactive");
+    if (!strcmp(argv[1], "survey") || survey_inactive)
+        _putenv_s("AVP_BRIDGE_SURVEY", "1");
+    else
+        _putenv_s("AVP_BRIDGE_SURVEY", "");
+    if (survey_inactive)
+        check(!AccBridge_IsSurvey(), "survey opt-in alone is inactive before bridge enable");
     AccBridge_Enable(root, 0);
     if (!SDL_CreateDirectory(root)) return 2;
     if (!strcmp(argv[1], "client_server")) {
@@ -163,6 +292,9 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[1], "locked_command")) locked_command();
     else if (!strcmp(argv[1], "rename_retry")) rename_retry();
     else if (!strcmp(argv[1], "held_close")) held_close();
+    else if (!strcmp(argv[1], "map")) map_command();
+    else if (!strcmp(argv[1], "survey")) survey_mode();
+    else if (survey_inactive) check(AccBridge_IsSurvey(), "bridge activation completes exact survey opt-in");
     else if (!strncmp(argv[1], "startup_", 8)) startup_failure(argv[1]);
     else return 2;
     BridgeShutdown();

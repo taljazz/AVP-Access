@@ -1,5 +1,116 @@
 # AVP Access — engine notes and handover
 
+## Predator Waterfall navigation — 2026-09-20 (implemented and replay-verified)
+
+Local, uncommitted Predator support targets the first Waterfall mission only.
+Implemented support includes player status, field charge, cloak/vision and selected
+weapon speech; shared sonar/objective paths; Predator controller defaults and custom
+binding checks (the final three active Predator configuration slots); combat/loot/height
+handling; route/snap gates; and an exact Waterfall + Predator + room-94 opening-control
+matcher. Status, sonar/objectives, combat, loot and species-aware traversal are shared
+support. The Predator default controller preset assigns R3 to stored-message history;
+View+R3 still selects snap, and only exact prior defaults migrate while custom bindings
+remain intact. The opening-control matcher, surveyed fall-room run-up helper and
+final-shaft lower-stair/lift itinerary are the Waterfall-specific route additions.
+Marine behavior remains covered by
+its existing regressions. A 112-room, 160-render-module, 227-link static
+audit found 52 species-restricted links and no missing entries or invalid references.
+The fall-route helper gives manual movement cues. An optional, explicitly started
+jump assist uses normal movement requests, never writes physics state, and cancels
+when the player takes control. Keyboard J (when unbound) and View+A (when View is
+unbound and A retains default Predator Jump) start/cancel it only at the two surveyed
+staging zones with route guidance on and the opening gate unlocked.
+
+Predator equipment controls in the Xbox preset use View/Back chords: RB/LB zoom in/out,
+X requests disc recall, B selects a possessed medicomp, Y requests the grappling hook,
+and L3 taunts. Zoom reports its step (1–3) or normal view; each Predator vision cycle
+speaks the resulting mode. Medicomp uses the regular fire controls after selection (RT
+heals, LT extinguishes fire). The grappling hook remains equipment-gated, and recall
+feedback confirms a request rather than a successful return. These chords borrow only
+exact stock bindings, preserve custom View/button assignments, suppress the borrowed
+standalone action while held, and allow repeated taps while View remains down. Automated
+input and vision tests pass; this addition has not yet been live-tested with a controller
+or screen reader. The plasma caster's engine lock feedback has no new spoken accessibility
+cue in this change.
+
+Saved-profile diagnosis found why one player's pad actions had been absent while the
+sticks still moved: the existing Predator profile kept the old keyboard-only secondary
+actions, and its custom keyboard primary differed from the active default-key table.
+The old migration required a byte-for-byte primary match and compared the full secondary
+struct, including two unused expansion bytes that were zero in the profile but `KEY_VOID`
+in the legacy initializer. The focused migration now recognizes only the exact old
+active 30-slot secondary layout, accepts a primary only when it has no gamepad bindings,
+and preserves that primary and both expansion bytes. Any customized active secondary
+slot or gamepad binding in the primary blocks migration. The existing profile is read
+and upgraded in memory on load; no profile file was edited by this fix.
+The focused gameplay-input runner now passes 204 assertions, including a migrated
+saved-profile-shaped fixture for A jump, RT/LT fire, Y/LB weapon cycling, RB vision,
+D-pad Up cloak, View+RB zoom and View+X recall. These are automated input-map checks;
+they do not substitute for the player's live controller check.
+
+Automated regressions and their logs are listed in
+`../build/predator-regressions-20260920/SUMMARY.txt`. Disposable live surveys
+verified the first switch, the two surveyed jumps, gate02 into tunnl01, and the
+later route through the final shaft and airlock to the actual `Level complete`
+event. Trace4 reached that event at sequence 1834; `bridge/events.jsonl` records
+the speech and `bridge/shot-001836.png` records the completion screen under
+`../build/predator-jump-assist-trace4-20260920/`. Stage4 checkpoints include
+slot 2 at the upper start, slot 3 on the north deck, slot 4 at northeast staging,
+and slot 5 on the east deck. Stage5's original profile remains preserved at
+gate05 (slot 7 in the security area, slot 8 inside gate05). The earlier jump
+assist clone profile is `../build/predator-jump-assist-replay-20260920/profile/.avp`:
+slot 7 is after the upper switch and slot 8 is the pre-lift checkpoint in well01.
+The trace4 session directory itself has bridge logs, not a profile. In that
+clone, keyboard J completed the first
+guided jump and View+A completed the second; both landed grounded. Start/cancel
+and manual-control cancellation were also checked at staging. Earlier
+`pad_l3+pad_r3` snap and `rshift` walking observations were invalid; controls
+confirmed from `usr_io.c` are `w+lshift` to walk, `w+rshift` to jump, Space to
+interact, and `pad_view+pad_r3` to snap. Survey immortality does not stop health
+loss; completion in survey mode does not establish normal-combat survival.
+
+The NPC graph has a directed room-9-to-94 edge but no return edge from 94 to 9.
+The graph remains unchanged and no global waiver was added. Earlier physical
+survey play crossed the intervening gates and reached completion; it remains
+separate evidence from the targeted guided replay below. Switch6 unlocked gate03,
+switch7 opened the water gate, and switch56 changed gate05 passability before its
+physical crossing.
+
+The latest route source was rebuilt with `tools/build.bat`. A targeted replay
+started from the saved pre-lift slot8 checkpoint, not a fresh campaign. Frame 1
+confirmed the player grounded in well01 at `(190386,32010,49019)`, switch11 state
+0 and lift8 disabled at upper height -2076. With route guidance enabled, the
+bounded stair approach led to the measured corner and then switch11; Interact
+changed it to state 1. The player waited, boarded, rode the lift, followed the
+north exit point `(188281,844,72090)` and west point `(182512,844,71959)`, activated
+upper switch58 and traversed the airlocks. In
+`../build/predator-final-guided-replay2-20260920/bridge-clean/events.jsonl`,
+event 392 at frame 1220 says `Level complete.` The final reply (sequence 115,
+after the owned process was quit) reports grounded in airlock03 at
+`(178935,844,101040)`. The clone profile is
+`../build/predator-final-guided-replay2-20260920/profile/profile/.avp`; it is
+separate from the preserved stage5 profile and the earlier jump-assist clone.
+This verifies the lower-lift-to-completion segment with the latest guided build,
+not a newly guided full-campaign run.
+The tested controls from `usr_io.c` are N or View+D-pad Right to toggle route
+guidance, Space or Xbox X to interact, W+Left Shift to walk, and W+Right Shift
+to jump. View+R3 snaps to guidance; keyboard J/View+A start the optional assist
+only at the two surveyed opening-jump staging points.
+
+Focused suites pass route 159 and lift-route 63. The route suite pins the lower
+stair approach and passed-corner conditions; raw outputs are
+`../build/predator-regressions-20260920/route-final-shaft.log` and
+`../build/predator-regressions-20260920/lift-route-final-shaft.log`. The earlier
+trace4 physical survey separately reached `Level complete` at sequence 1834;
+the earlier opening jump-assist clone separately verified keyboard J and View+A
+through both surveyed jumps. Room82 cue stickiness was not confirmed: distances
+decreased 2356→1649→806 and the waypoint advanced. Survey mode suppresses combat
+takeover and makes the player immortal. These runs therefore do not establish
+normal-combat survival or normal combat success. NVDA speech quality and user
+controller listening/feel remain unverified. Grounded/nearly-flat contact,
+velocity and camera telemetry were observed. Static downstream notes remain in
+`../build/predator-downstream-stage3-20260920/`.
+
 Written so that someone picking this up cold — human or another assistant — starts with
 the map rather than rediscovering it. The original engine notes were verified against
 the running game. The controller follow-up below distinguishes automated checks from
@@ -11,6 +122,101 @@ happened to exercise them. **When something behaves oddly, measure before theori
 three of the four hardest problems in this project were misdiagnosed on first inspection.
 
 ---
+
+## Derelict whole-map audit and exit survey — 2026-09-20
+
+Local, uncommitted work. This extends the previous slot-2 fix and supersedes the
+statement that the latter half has never been traversed. It does not certify
+all optional rooms, all puzzle states, other levels, or Predator/Alien movement.
+
+The entire exported graph was audited: 172 AI rooms, 337 directed connections,
+no missing entries or invalid references, 127 authored waypoint volumes in seven
+complex rooms, and seven platform lifts. The local per-room report records paths
+for every room. With only the three surveyed downward shaft links allowed,
+162 rooms have a topological path to END; 110 have a path through the snapshot's
+currently AI-passable rooms. The other ten include disconnected entries and
+restricted side branches. Neither count establishes physical player clearance.
+
+The apparent restricted links 75->76->158 are the long SHIPCOR-05/JOCKEY/HOLE
+platform descent. Link 171->159 is the final lift shaft. Route search now accepts
+only these exact directed Derelict connections, matching world entry coordinates.
+Reverse climbs and other NPC-restricted links stay restricted. Guidance uses the
+lower landing goal rather than intermediate shaft portals, recognizes a moving
+platform across AI-room boundaries, waits aboard, then guides the exit. A missing
+identified platform produces a wait, not permission to walk into the shaft. The
+final platform's origin is 1945 mm above the standing-player position; its boarding
+check accounts for that measured offset only on this identified shaft.
+
+Live evidence in `../build/full-route-2026-09-20/`:
+- `live/`: normal-damage replay from a private slot-2 copy, through VIEWD-05,
+  ship corridors, the long descent and HOLE, then death during Alien combat.
+  Health/armor did not decrease during that descent.
+- `survey1/`: opt-in survey run reached the actual Level Completed screen;
+  `shot-000425.png` records it. Ordinary movement, turns and firing were used;
+  no teleport, door unlock or objective manipulation. Enemies obstructing the
+  path were cleared with firing. This run preceded the final-shaft guidance fix.
+- `final/`: second replay verified explicit final-shaft boarding/wait/exit and
+  reached completion again; the new one-time `Level complete.` speech was logged.
+  It exposed a contact-gap lift exit trap, requiring a manual forward command;
+  do not treat this run as verification of the subsequent contact-gap fix.
+- `landing-check/`: replay with the contact-gap fix crossed both shafts and the
+  final doorway without the previous rising-platform trap, then reached the
+  completion screen (`shot-000446.png`) and logged `Level complete.` once. Aliens
+  physically blocking the exit and later water walkway were cleared by firing;
+  this was not an uninterrupted walking-only run. A jump attempted at the latter
+  obstruction did not clear it; shooting the blocking Alien did.
+
+The final lift hold is retained across a brief loss of floor contact only within
+its surveyed lower step-off area. Leaving that area or resetting guidance releases
+it. Other platforms still require contact. Final MSVC build succeeded. Nine
+affected regression runners passed (`tests.json`); route 106, lift route 36,
+traversal 51, and bridge runtime/client 49+12 checks. The last rebuild only removed
+an unused lift variable and refreshed a header comment after the live replay;
+the lift suite was rerun successfully. All owned game processes were closed.
+
+Survey mode requires both the bridge and environment `AVP_BRIDGE_SURVEY=1`.
+It makes the player immortal without healing, and suppresses route combat takeover.
+It is off for normal launches; results establish navigation, not combat survival.
+Only disposable profile copies were used. Original SkyPulse slot 2 SHA256 remains
+DCDA09695449E84F79723E93496FB6BB744E566216B250E6AD8B401D55E9E010.
+Map exports and screenshots stay outside Git. See `docs/BRIDGE.md` for survey limits.
+
+## Visual/media audit — 2026-09-19
+
+The staged and original GOG FMVs were inventoried and fully decoded: all 77
+files match SHA-256, with no missing files or decoder errors. This covers seven
+640x360 logo/campaign movies, the 640x380 menu background, 53 128x96 plot videos,
+and 16 music files with dummy 4x4 video (15 Bink tracks plus introsound.smk).
+
+The original animated menu background was still stubbed out. It now uses a
+separate, nonblocking, looping decoder, redraws the background before menu text,
+and retains the static backdrop if unavailable. It does not advance gameplay or
+replace menu music. The obsolete hard-coded 360-line crop was removed so the
+380-line movie is preserved. Changes are local, not committed or pushed.
+
+Audit scripts, per-file hashes/metadata/decode logs and captured frames are under
+`../build/visual-audit-2026-09-19/` (local copyrighted material; do not commit).
+All seven logo/campaign movies were played through the game with sample frames
+inspected; the background movie also completed standalone playback. The first
+logo attempt ended early and was retried successfully. Movie screenshots use the
+engine software-surface capture; gameplay screenshots use the OpenGL framebuffer.
+Marine CORR-15 was inspected fullscreen with HUD, world textures, prelude overlay
+and image intensifier off/on. Dark normal lighting and green intensified lighting
+are visibly distinct. This is not a complete playthrough of all three campaigns;
+natural mission triggers and every level/special effect are not exhaustively verified.
+Validation: all 53 plot-message diagnostics exited 0 with changing frames, nonzero
+palettes and no guard timeouts. These diagnostics exercise the in-engine decoder,
+not every wall-monitor placement. The build succeeded; menu/media tests passed
+22 assertions plus the no-FFmpeg fallback API test. Restored menu screenshots
+show animation after multiple loops and no retained old menu labels; 794 of 5076
+sampled background pixels changed between late captures. Profile/main/load menu
+navigation and speech worked, followed by loading Marine CORR-15. The post-build
+logo movie was also rechecked after separating scaling from presentation.
+
+The tests used isolated copies of the Player audit profile, not SkyPulse. Bridge
+runs were muted, so audio stream decoding is verified but this audit does not
+claim a new human listening or lip-sync check. Missing-file fallback is implemented;
+the no-FFmpeg fallback was executed, but removal of the installed movie was not tested.
 
 ## 1. Layout
 
@@ -320,7 +526,8 @@ as within one meter. Empty valid snapshots say no contacts ahead; invalidated
 snapshots say the tracker is unavailable. Distances are approximate, and existing
 blips can persist briefly after an object stops moving.
 
-`AccTracker_PlayContact()` uses `Sound_Play` format `nevm`: copied 3D data, external
+`AccTracker_PlayContact()` uses `Sound_Play` format
+evm`: copied 3D data, external
 handle, explicit volume, and Marine-AI ignore. The `m` flag matters because Marine
 AI otherwise hears newly positional feedback. Inner/outer radii are two/three
 times tracker range to avoid attenuating ordinary detectable contacts. Y is
@@ -667,6 +874,566 @@ live-test case above. The source, tests, tools and documentation are included;
 retail data, built executables and local screenshots/logs are excluded. Pre-existing
 local clang-tidy/configure tooling edits remain outside this accessibility commit.
 
+### Continuous Marine guidance — 2026-09-19
+
+User chose continuous guidance with an on/off toggle. `N`, or hold Xbox View
+and press D-pad Right, toggles it. Single D-pad Right still cycles objectives;
+custom bindings override the shortcuts. Keyboard and controller chord edges are
+consumed once. Default is off; pause, death, unavailable gameplay, level teardown
+and HUD reinitialization cancel it. Intensifier changes leave it alone.
+
+Implementation: `acc_route.c/.h`, `acc_route_targets.c/.h`; transient C objective
+identity accessor in `missions.cpp`, input dispatch/update in `usr_io.c`, resets
+in `hud.c`. A one-second positioned tracker high tone is tagged `source=route`
+in bridge events. Speech queues without interrupting plot speech. New rooms
+announce on the next update; other changed directions/distances at most every
+four seconds. Stable wording does not repeat. No automated player movement.
+
+Targets are direct, currently eligible binary/link switch activators of visible,
+achievable, unfinished objectives. Mission request must be on with DontComplete
+clear. Area bounds are WORLD space (the switch code tests player position
+directly); midpoint is used. Shape-less logical switches are not physical points.
+Unmet linked prerequisites, nonzero security requirements, autoexec/always-on
+and already-on switches are conservatively excluded. Among direct activators,
+the nearest by straight-line distance is selected; this does not rank alternative
+activators by path accessibility. No reverse chain through messages/timers/door
+controls or mission alterations is inferred.
+
+Route search uses a per-call queue sized to the level's AIMODULE count, with a
+65536 cap and allocation failure handling. It does not reuse/mutate the engine's
+100-entry NPC route queue. Existing entry points and current door admission rules
+select the next room opening. Complete routes exclude Alien-only links. If no
+complete route exists, a second topology search identifies the first blocked or
+restricted connection and routes only to its near side. Wording explicitly says
+closed door or unverified passage. This does NOT certify player jumps/lifts,
+walkability within a room, trigger-volume midpoint accessibility, or a complete
+campaign route. Use sonar for local geometry. The partial route uses the shortest
+topological path, not a plan minimizing locks or solving them.
+
+Live bridge evidence (muted, Training, no user listening confirmation yet):
+
+- Derelict has 172 AI modules. The visible blank-description objective resolves
+  to one direct area trigger near END, far beyond START. Its topology includes
+  locked doors and Alien-only links, so a complete Marine NPC path does not exist.
+- Partial guidance gave 4 o'clock / 7 metres from START. Following the cue with
+  normal turn/walk inputs reached START-EN01, CORR-11 and CORR-13. Logged next
+  directions changed to 10 o'clock / 5 metres and 3 o'clock / 2 metres. Screenshots
+  and cue positions agreed with the opening corridor turns.
+- Bridge controller chord toggled off and on, without status/objective double
+  readouts. Running with guidance off produced no route cues. Pause/resume left
+  guidance off. Owned test game exited normally; no game was left running.
+- Evidence lives outside git in sibling `build/route-2026-09-19*`. Final change
+  to announce newly entered rooms sooner is covered by the route fixture; that
+  timing refinement was not separately re-walked live.
+
+Target resolver was delegated to one GPT-5.6 Luna low worker; coordinator reviewed
+the code, corrected the DontComplete fixture to test an ON request with that bit
+set, and integrated it. Route tests cover a 130-module graph, cycles, directional
+links, door/restricted boundaries, speech/cue schedule, missing targets and reset.
+Gameplay/HUD fixtures cover the chord, custom binds, pause and vision behavior.
+Final integration: application build succeeded; all 15 regression runners exited
+zero, including 25 route checks and 15 target-resolver checks. `git diff --check`
+passed. Changes remain local pending the listening check and publication decision.
+
+Next validation: user listening check for useful ping timing and spoken turns.
+Remaining route work includes door-control prerequisites, story subgoals and
+manual-traversal boundaries. Do not label this initial guidance as end-to-end
+campaign accessibility or mark route guidance finished.
+
+### Xbox sensitivity adjustment — 2026-09-19
+
+User reported movement and looking both felt wrong, then clarified: "Controls
+are way too sensitive." `acc_pad.c` now rescales the 8000 dead zone to zero,
+uses quadratic stick response and caps output at half the old full-scale input.
+Positive/negative extremes use their own SDL endpoint for equal maximum speed.
+`usr_io.c` skips its additional legacy 12000 threshold only when an SDL pad is
+present; otherwise the fine movement would vanish and resume with another jump.
+Menu thresholds, triggers, keyboard/mouse and profile sensitivity/inversion are
+preserved. User confirmed the new curve: "Okay, that works well."
+
+Read-only inspection of actual Player and SkyPulse profiles in root `.avp` and
+`build/.avp` found look sensitivities 32/32, no movement/look inversion, and no
+auto-centering. SkyPulse has RT primary / LT secondary; Player stores older
+keyboard secondary bindings, subject to the existing narrow preset migration.
+No profile files were edited. Build passed; affected controller and gameplay
+runners passed (240 controller checks, 95 gameplay checks). The 15-suite run above
+predates this sensitivity change; it was not unnecessarily repeated.
+
+### Door controls and breakable covers — 2026-09-19
+
+Continuous Marine guidance now enumerates eligible direct controls for live
+proximity, lift and switch doors. It rejects unreachable controls before choosing
+the closest reachable one. If a topology path ends at a door without a usable
+control, it excludes that boundary and tries another path, up to 16 attempts.
+Unresolved doors retain an explicit unknown-control message. Multi-stage switch,
+security and story prerequisites remain outside this implementation.
+
+`triggers.c` shares its read-only selection routine with route guidance. The
+"Press Interact" prompt requires the same selected object, alignment, range and
+visibility as actual activation; proximity alone is insufficient. Obstructed
+controls identify breakable non-explosive static/furniture scenery from engine
+data, without labeling arbitrary geometry or pickups as breakable. Other
+obstructions get a neutral announcement. Guidance never fires or activates.
+
+Live bridge verification used an isolated Player profile and checkpoint under
+`build/review-2026-09-19`, not the user's profile/save files. The initial shortest
+path reached DR-COMM01, whose incoming edge locks rather than opens it. An
+alternative path reached DR-COMM03's control behind an emergency glass cover.
+Normal movement reached the cover; X alone could not operate through it. Firing
+broke the cover, the readiness announcement appeared, X activated the control,
+and normal walking crossed DR-COMM03 into COMM-ENT01. A final-build replay
+verified the new breakable-obstruction announcement followed by readiness and
+activation. Evidence: sibling `build/door-2026-09-19*` speech/cue logs and shots.
+Test processes were closed afterward. User listening verification remains pending;
+this is not evidence of a completed campaign route.
+
+MSVC build succeeded. All 16 regression runners exited zero, including interaction
+16 and target resolver 48 checks. The final alternative-path regression then
+passed with the affected route suite at 32 checks (the full run had 31). Evidence
+is in `build/door-regressions` and `build/door-route-alternative.log`.
+One GPT-5.6 Luna low worker supported the target resolver and fixtures; the main
+agent reviewed the enumeration contract, integrated the feature, completed the
+alternative-path regression and performed the live tests. Changes remain local.
+
+### Local strafe and low-obstacle jump prompts — 2026-09-19
+
+User reported getting very far with door guidance, then requested strafe left/right
+and jump-here prompts. The troublesome spot was somewhere mid-level and could not
+be identified visually by the blind player; no exact saved-location reproduction
+was available. Do not claim this pass fixes that particular obstacle.
+
+`acc_traversal.c/.h` adds read-only Marine geometry probes to continuous route
+guidance. Nearby lateral alignment suggests a small strafe while preserving facing.
+When facing the route but locally blocked, it checks a low jump candidate, then
+sideways paths with forward clearance. Three lanes span the Marine radius plus
+30mm; body-height rays and floor samples reject obstructions, steep/moving ground
+and drops. Shared public LOS results are restored after every query.
+
+Jump candidates require standing, grounded, nearly-flat standard-gravity movement
+and normal weapon jump encumbrance. The lower obstacle probe is 550mm (above the
+450mm auto-step threshold), with clearance above 850mm and up to standing height
+plus 1800mm. Floor/overhead samples extend four metres; landing ground beyond two
+metres must be near the original height. No gaps, high ledges or lifts are inferred
+as jumpable. The wording requests a SHORT forward movement: a full running jump
+can overshoot the sampled area. This is sampled geometry, not a swept-body jump
+simulation or proof of safe passage for every possible movement input.
+
+New movement instructions are announced on the next one-second guidance tick,
+ahead of clock/distance wording; stable instructions do not repeat every tick.
+Interaction prompts and unresolved boundaries in the current room take precedence.
+No movement or jump is performed automatically, and controls are unchanged.
+
+Live bridge test from the isolated Derelict checkpoint verified both left and
+right strafe announcements. Following each with normal sideways walking reduced
+the distance to the opening while yaw stayed unchanged. Evidence is in sibling
+`build/traversal-2026-09-19`; the owned test process was closed. Jump geometry is
+covered by synthetic tests, not yet by a real low-obstacle traversal or the user's
+mid-level location. User listening/play verification remains pending.
+
+Final MSVC build succeeded and all 17 regression runners exited zero. Route
+integration has 38 checks; analytic traversal has 16. The ceiling fixture was
+then tightened to allow standing clearance while rejecting jump headroom, and
+the affected traversal suite passed again. Logs: `build/traversal-regressions`,
+`build/traversal-final-fixture.log`, `build/traversal-build.log`. `git diff --check`
+passed. One GPT-5.6 Luna low worker investigated movement constants and authored
+the analytic tests; the main agent reviewed geometry assumptions, integrated,
+refined and live-tested the feature. No commit/push was made in this pass.
+
+### Automatic Marine targeting guidance — 2026-09-19
+
+User requested automatic targeting mode for immediate hostiles. `acc_combat.c/.h`
+is called by `AccRoute_Update` BEFORE its one-second throttle, while continuous
+guidance is enabled. It scans at 100ms intervals; a visible supported hostile
+inside 20m takes ownership of speech/cues. The current target can remain to 24m
+and is retained unless another visible threat is substantially closer (1.8 ratio).
+Identity is compared against live enumerated strategy pointers plus eight engine
+name bytes; no retained entity pointer is dereferenced after a frame ends.
+
+Hostile policy is separate from SmartTarget_TargetFilter, which also accepts
+friendlies/projectiles. The explicit roster covers Alien, Predator, Predalien,
+Queen, Facehugger and Xenoborg; Marine/Seal require an AI Target equal to Player.
+Health, destroy flags and NPC death state are checked; facehugger/xenoborg dying
+states are checked directly because NPC_IsDead does not cover those two states.
+Unknown types, corpses and multiplayer are excluded. No automatic aiming/firing.
+
+Acquisition checks a ray from the camera to the engine targeting point (usually
+chest), including offscreen near actors with display blocks. Range is explicitly
+checked. All public LOS results are restored. The camera matrix gives horizontal
+and vertical instructions. "On target" requires a fresh ray using the engine's
+current GunMuzzleDirectionInWS to hit the selected actor first, not an angle cone.
+This is not a promise about recoil, spread, ballistic weapons or future movement.
+
+Combat stops the route tone, emits a medium cue every 450ms while misaligned and
+a high cue every 200ms when aligned, tagged `source=combat` in bridge events.
+Spatial tones convey horizontal direction; speech provides vertical corrections.
+Speech changes are limited to 700ms and repeated at four seconds if unchanged;
+new targets announce immediately. Combat speech interrupts older TTS to prevent
+stale aim corrections. Existing mission history can replay interrupted messages.
+Loss of sight stops cues immediately; after 1.2 seconds without a visible target,
+the mode announces route resumption and refreshes the route immediately. It never
+claims that all enemies are dead. Existing route lifecycle resets cancel combat.
+
+Live bridge smoke test traversed the saved Derelict corridor, operated the glass-
+covered control and entered the communications area. No qualifying hostile was
+encountered, so this does NOT verify a live kill, target acquisition, camera aim
+feedback or perceived combat audio. Logs/screenshots: `build/combat-2026-09-19`.
+The test process was closed. A staircase at COMM-ENT04 required a manual jump;
+the conservative traversal prompt did not identify it (overhead/landing limits).
+Keep that observed navigation gap for follow-up rather than claiming all jumps
+are supported. User combat testing remains necessary.
+
+MSVC build succeeded. All 18 regression runners passed: the 17 existing runners
+plus the new combat runner (42 checks); route integration has 42 checks. Evidence
+is under `build/combat-regressions` and `build/combat-build.log`. The main agent
+reviewed and corrected the fixture's sphere size, ray normalization and rotated
+camera test before accepting results. One GPT-5.6 Luna low worker supported NPC
+research and the fixture; main owned policy, implementation, integration and final
+review. The working changes have not been committed or pushed.
+
+### Local approach steering — 2026-09-19
+
+User screenshots and feedback showed guidance pointing toward an opening without
+getting around intervening scenery. The former local strafe hint could disagree
+with a beacon still aimed at the distant opening. `AccTraversal_Steer` now checks
+the direct three-metre approach, then searches up to 45 intermediate candidates
+on three rings (1.2, 2.4 and 3.6 metres). Three body-width lanes check standing
+clearance and sampled flat floor support on both legs. A selected waypoint is
+retained through turns/movement and revalidated for new obstructions; changing
+goal, room, lifecycle or combat ownership clears it. Physical controls use a
+1.6-metre stand-off, while nearby actual interaction/cover instructions retain
+priority. Both route speech and the beacon use the intermediate point. Forward
+evasion hints cannot contradict that point. With no local approach or supported
+jump, an interrupting stop message replaces queued directions and no route cue
+plays. The planner does not move or turn the player.
+
+Live bridge test `build/steering-2026-09-19` followed two detours around CORR22
+obstructions, continued through CORR23/CORR21/CORR19/CORR10 and reached the
+glass-covered control. Shooting the glass produced the correct Interact prompt.
+After activating it, the next update reported no clear local approach. The test
+ended there: whether this was the moving door or overly conservative clearance
+has NOT been determined. Do not claim the post-control transition is verified.
+The owned game process was closed. No user saves were modified.
+
+Limits: this is a bounded two-leg sampled search, not a navmesh or a continuous
+collision proof. Narrow steps, stairs, slopes, pits and routes needing longer
+detours can be rejected. The screenshots alone do not establish the user's exact
+map position. User listening/route verification is still needed at their trouble
+spot. Tests include 27 analytic traversal checks and 46 route integration checks;
+one GPT-5.6 Luna low worker supported the traversal fixtures, reviewed by main.
+MSVC build and all 18 regression runners passed. Evidence:
+`build/steering-build.log` and `build/steering-regressions/results.json`.
+These changes remain local, uncommitted and unpushed.
+
+### User feedback: less eager steering and shorter speech — 2026-09-19
+
+The user found obstacle routing too sensitive and announcements too verbose.
+Initial direct-path lookahead is now 1.2 metres rather than 3 metres, with the
+same Marine body clearance and floor checks. Candidate detour legs retain their
+longer checks. A cached detour releases when the original three-metre approach
+is clear, avoiding continued diversion after passing an obstacle. This trades
+earlier warnings for fewer premature detours; it needs user validation at speed.
+
+Spoken labels are shorter (Opening, Detour), with no "about". Strafe/jump prompts
+stand alone, the blocked warning is "Stop. Path blocked.", and usable controls
+say "Press Interact." Room/detour/strafe changes wait at least three seconds
+between announcements; other changes wait six. Comparisons use the last spoken
+state so a deferred change is not lost. Stop, new jump, actual interaction
+readiness and release from a blocked state remain immediate. Ordinary route
+speech still queues to preserve mission narration; stop interrupts. Stable
+instructions remain silent. Beacon timing and combat guidance are unchanged.
+MSVC build passed; the affected route suite passed 49 checks and traversal passed
+31 cases. Evidence is in `build/route-tuning-{build,route,traversal}.log`.
+One Luna low worker updated fixtures; main reviewed them and added explicit
+six-second distance-throttle and standalone-strafe assertions. No live listening
+verification of this tuning yet. Changes remain local and uncommitted.
+
+### Override approach: retain orientation on uncertain scans — 2026-09-19
+
+User clarified that they never reached the override switch: repeated obstacle
+takeovers prevented approach. Exact map position remains unverified from the
+night-vision screenshot. Failed local searches previously asserted a blocked path,
+removed the beacon and bypassed speech throttling on blocked/clear transitions.
+That conflated failure to find a sampled route with proof of an obstruction.
+
+Unresolved scans now preserve the original target point, bearing and cue, with
+"Check path." appended. Both failure and recovery obey normal speech throttling;
+they do not interrupt narration. Successful checked detours still use their
+intermediate point. Jump and actual interaction readiness retain priority.
+This provides orientation, not permission to walk through walls or across gaps;
+sonar remains useful. It does not solve all switch approaches or certify this
+exact override location. This supersedes the earlier stop-and-silence policy.
+Build passed, along with 53 route checks including original-target cue retention
+and blocked/direct speech throttling. Logs: `build/override-guidance-build.log`
+and `build/override-guidance-route.log`. A Luna low worker updated tests; main
+reviewed them. No live approach verification yet; changes are not committed.
+
+### Whole-level inspection foundation — 2026-09-19
+
+User approved whole-map inspection to support future navigation for all species.
+Added read-only bridge `map` command, `acc_map.c/.h`, schema documentation in
+`docs/MAP-INSPECTION.md`, and PowerShell `tools/inspect-map.ps1` for text reports
+and incoming switch-chain inspection. Exports include all AI room entries and
+their render meshes, directed entries including Alien-only restrictions, active
+objects, static/scenery/switch base meshes, switch requests/prerequisites and
+supported door state/lock fields. Raw meshes retain local coordinates and owner
+transforms; animated collision and species traversal are explicitly unverified.
+
+Live Derelict export from the isolated review profile:
+`build/map-2026-09-19/map.json` and `map-report.txt`. 172 room entries, 187 render
+modules, 388 objects; 21,994 module vertices / 14,674 module faces. Including
+object meshes, all 21,164 exported face index lists were checked. Consecutive
+exports were identical and left frame/time/player pose unchanged. Menu invocation
+was rejected. Initial export crashed on a room without render modules; exporter
+now guards that engine door-query precondition, verified in the successful runs.
+The final owned game process exited normally; user saves were not modified.
+
+Room 123 groups COMM-01, egg12 and COMM-03 despite distinct vertical extents.
+COMM-01's switch at (29607,-298,-58748) sends eight requests, including both zero
+and one values whose meaning depends on the recipient. These support investigating the
+internal geometry, not proof of the screenshot location or an override route.
+Next: derive connected surfaces and a valid switch approach inside the grouped
+room, then test it. No navigation behavior changed in this inspection task.
+
+MSVC build and all 18 regression runners pass (`build/map-build.log`,
+`build/map-regressions/results.json`). Bridge coverage: 163 core assertions plus
+5 PNG checks, 38 runtime checks and 12 client checks. Runtime map tests mock the
+exporter; the geometry/clock checks above used the actual game. One Luna low
+worker implemented bridge integration/tests; main implemented exporter/report,
+reviewed integration and performed live validation. Predator and Alien export
+sessions remain untested. All work is local, uncommitted and unpushed; proprietary
+exports remain outside the repository.
+
+### Derelict map-based guidance — 2026-09-19
+
+Implemented locally, not committed or pushed. This supersedes the preceding
+inspection-only next step. The whole map has been exported/audited; **full level
+completion and all alternate routes are not yet verified**.
+
+- Map export now includes all authored intra-room waypoint volumes/links and
+  platform lift states/endpoints. `tools/audit-map.ps1` reports 172 AI entries,
+  337 directed room links (12 Alien-only), 127 volumes in seven complex rooms,
+  seven platform lifts, no missing room entry points and no invalid references.
+  Disconnected walking-volume pairs include Alien-only ceiling/crawling links;
+  do not treat every such pair as a playable-route defect.
+- `acc_wayroute` searches owned arrays, preserving NPC scratch state and link
+  restrictions. Supplemental touching-volume edges require live body/floor
+  probes. NPC centres can be inside scenery at Marine height: an inset 7x7
+  sample chooses a checked standing point if needed. Failure leaves the original
+  centre unverified, with local steering responsible for clearance feedback.
+- `acc_route` retains an intermediate point until within 650 mm; source room,
+  goal, lift state, vertical change and reset invalidate it. This avoids repeated
+  reversals at overlapping authored volumes. Ordinary short obstacle triggering
+  and speech throttling are retained; lift arrival is immediate, subsequent
+  lift updates obey the ordinary throttle.
+- `acc_traversal` retains the short two-leg search and adds a bounded 31x31,
+  800 mm grid (400 expansions) for multi-corner cases. Long goals may receive
+  only a checked local prefix, never an unchecked final edge. Cached legs are
+  revalidated. Floor sampling is at most 300 mm apart; the old square footprint
+  behind the start was removed to avoid trapping a round player against a wall.
+  Stopped platforms can support departure; moving ones cannot. Lift exits use a
+  longer initial clearance check than ordinary 1.2 m walking lookahead.
+- `acc_lift_route` routes to same-room automatic platforms, recognizes actual
+  floor contact, announces wait/exit, and checks arrival every 100 ms. **Gameplay
+  assistance:** `bh_plift.c` pauses a selected single-player lift's return timer
+  at the desired landing while the guided player remains aboard. It releases
+  after stepping off, route reset/off, or target requery. This was needed because
+  the original 1.5-second turnaround can expire before speech is finished. No
+  automatic interaction or player movement was added to normal gameplay.
+
+Live evidence: owned, muted bridge sessions in `build/level-routing-2026-09-19`,
+using the isolated profile under `build/review-2026-09-19/.avp/User_Profiles`.
+User profiles/saves were not modified. The initial CORR-15 checkpoint replay
+reached the glass-covered control, operated it, climbed the COMM stairs, followed
+its upper perimeter to the west platform, descended and operated the override.
+Export confirmed that switch's state changed and its lift was disabled. The route
+then continued through the egg room, LABEX control, VA corridors and VIEWA lift,
+SKA rooms and their lift, then APORT corridors as far as **APORT-T03**, approximately
+(63576,-18272,-291729). Several hostile encounters exercised combat takeover and
+route resumption. They do not prove kills or correct vertical aiming. The replay
+ended in death after health had fallen to 7%; **the remaining level, other puzzle
+states and optional areas are still untested**. Three lifts were exercised;
+SKA's final successful exit used the new landing hold. Earlier failures/oscillation
+are retained in `walk.txt`/event logs; do not count every earlier attempt as a pass.
+
+A final-build replay from the private SKA checkpoint confirmed the held lift and
+supported exit into the next corridor, including the quieter arrival updates. All 20 regression runners and the final MSVC build are
+recorded in `build/level-routing-regressions/results.json` and
+`build/level-routing-build.log`. Key suites: route 67, wayroute 25, lift route 21,
+traversal 45 checks. These are code/analytic-geometry checks, not listening tests.
+One actual Luna low worker implemented supporting fixtures; main integrated and
+reviewed production changes and conducted the live replay. Grid-search runtime
+cost is bounded but still needs observation in busy scenes. No universal navmesh,
+full campaign guarantee, Predator routing or Alien wall-crawl routing is claimed.
+All owned game sessions were closed after testing. Next live test: the user's
+normal Xbox/NVDA run, especially override approach and lift exit timing; then
+continue the unverified latter portion of Derelict from a suitable checkpoint.
+
+### Slot 2 VIEWD-05 reproduction and approach fix — 2026-09-20
+
+User supplied SkyPulse slot 2. Replayed an isolated copy as slot 1 under
+../build/passage-slot2-2026-09-20/profile. Original and copied save SHA-256 both
+DCDA09695449E84F79723E93496FB6BB744E566216B250E6AD8B401D55E9E010.
+The regular launcher writes diagnostics to its console, not a persistent file;
+the recorded diagnostics here were reproduced from the copied save.
+
+Confirmed saved location: VIEWD-05, room 69, (-45803,3390,-217209), yaw4040,
+health22/armor26. Mission route target END168; restricted boundary is approach75
+SHIPCOR-05 ->76 JOCKEY-01. The saved obstruction is several rooms BEFORE that
+boundary. Baseline guidance pointed at the room70 portal(-46297,1606,-209698),
+walked into a wall and stalled at(-45709,4046,-216821). The fixed-height local
+search could not route around this room's rising/falling floor; authored walking
+volume links also include NPC Alien-only flags.
+
+Changes (local, built, uncommitted):
+- Ground-following navigation checks three width lanes at <=300mm intervals,
+  stable supported floor, <=250mm local rise/drop, standing clearance and headroom.
+  Grid nodes retain measured floor heights. Jump-hint probes retain their old checks.
+- A tightly scoped, manually surveyed lower-floor approach for Derelict room69 and
+  the exact room70 exit backs out, crosses the floor, approaches the raised lip,
+  and gives a forward-jump instruction only when grounded and facing its landing.
+  It hands back to normal routing on the upper landing. It does not globally permit
+  NPC Alien-only links, does not apply to other exits/levels or modify user movement.
+- Ordinary openings before a restricted boundary say "Opening". The warning is
+  reserved for reaching the boundary, rather than suggesting every earlier wall
+  is the unverified passage itself.
+
+Live evidence: bridge/ is the failing baseline; manual/ records the manual bypass
+and forward jumps into the opening. That manual run later died in combat beyond
+SHIPCOR-03 and is NOT a level-completion proof. ground-test/ shows ground-following
+alone still unable to solve the lip. survey-test/ follows the new beacons from the
+unaltered slot2 copy into SHIPCOR-01(-45438,1567,-207660), still health22/armor26.
+The automated final follower walked continuously rather than pressing jump; the
+jump action itself was exercised in manual/. Later SHIPCOR-05/JOCKEY/HOLE and shaft
+vertical transitions remain unverified and unsupported by this specific fix.
+
+Validation: route95 checks (including eight exact-survey scope/stage/facing checks),
+traversal51 checks (six new ramp/ledge/headroom cases), wayroute, lift_route,
+route_targets, loot, snap and gameplay input runners pass. Final build succeeded.
+Logs/test results are in ../build/passage-slot2-2026-09-20/. Initial runner-name
+lookup errors were corrected to run_traversal_tests.bat/run_input_tests.bat before
+recording passing results. Owned game sessions closed. User Xbox/NVDA retest pending.
+
+### Unverified vertical passage investigation — 2026-09-20
+
+User reached an "unverified passage" in Derelict, with a close-up green surface
+in the screenshot; no save was made there. The exact location and mission versus
+supply mode are not confirmed. Do not label this particular passage fixed.
+
+Confirmed code cause: RouteFrontier previously chose an Alien-only shortcut before
+a Marine-compatible route through a closed, operable door. It now searches the
+Marine-compatible graph first before reporting a restricted boundary. A new
+regression failed on the old code and passes after the change. Existing tests
+still reject traversing restricted edges. Route 87, route-targets 48, loot 33,
+and snap 17 checks pass; MSVC build succeeds. Local, uncommitted, unpushed.
+
+Important remaining limitation: projload.cpp derives entry.alien_only from
+AdjacentModuleFlag_Vertical. This is an NPC graph restriction, not proof that a
+Marine player cannot use a drop/vertical transition. Offline BFS on the exported
+Derelict graph from VIEWA room 73 to END room 168 has NO completely unrestricted
+path, even ignoring door state. The unrestricted-species shortest graph path
+includes SHIPCOR-05 -> JOCKEY-01 -> HOLE and liftshft02 -> liftshft01. Their player
+collision, landing, fall and lift behavior must be verified before navigation can
+cross them. The preference fix does not solve those required vertical transitions.
+
+When a restricted-boundary instruction is spoken, stderr now records level,
+source room, approach room, restricted room and mission/supply mode. This uses
+the existing speech deduplication gate, does not require --padtrace, and will
+identify a future occurrence. No live session or user save was altered in this
+investigation. Next: obtain/reproduce the actual stopping point and validate the
+corresponding vertical transition, then add an appropriate drop/lift route with
+regression coverage. Never globally enable alien_only links for Marines.
+
+### Nearby loot approach correction — 2026-09-20
+
+User reports the selected pickup is announced but the guidance cannot bring them
+onto it. Found a confirmed final-approach defect: within the existing 1.2 m
+horizontal/1.6 m vertical visibility check, the route replaced the bearing and
+distance with only "Medkit. Walk into it." even for a pickup behind the player.
+It now retains the clock direction and distance and appends "Walk into it.".
+The beacon/snap point and confirmed collection hook remain unchanged.
+
+Built locally, not committed/pushed. Route tests: 86 checks, including nearby
+left/behind/ahead bearings changing with player yaw; loot 33 and snap 17 pass.
+An isolated Player checkpoint was guided off the SKA lift to the medkit; runtime
+confirmed "Collected. Guidance off." and health increased from 90 to 100.
+Evidence: ../build/loot-check-2026-09-20/near/events.jsonl and walk.txt. This verifies
+collection, while the left/behind last-step cases are fixture-tested; the user's
+specific failing location still needs their live retest. SkyPulse's original files
+were not modified. The root Play AVP Access.bat uses tools/run.bat -w and the same
+build/avp.exe; use that windowed launcher per the user's confirmed visual preference.
+
+### Marine loot guidance — 2026-09-19
+
+Implemented locally, not committed or pushed. The feature is scoped to
+single-player Marine play. `L`, or Xbox View/Back + D-pad Left, browses useful
+supplies with needed medkits first, then other useful supplies by distance. `K`,
+or View/Back + D-pad Down, guides to the selected supply; using the same control
+again cancels supply guidance. Collection and cancellation both return to the
+prior guidance state. Medkits and armor are used automatically by touching the
+pickup. Ammunition enters inventory; weapons still use the normal Y/LB weapon
+selection and RT fire controls. Custom gameplay bindings take priority over the
+supply shortcuts.
+
+Live evidence is under
+`C:/Coding Projects/My Projects/APV Access/build/loot-review-2026-09-19/events.jsonl`.
+The main agent observed the live medkit path: a prior main-state check showed
+health 90, the selected medkit was announced and reached, the pickup speech
+request was logged, and a following state check showed health 100 with
+"Collected. Mission guidance resumed." The log also records supply browsing,
+supply guidance, a second selected weapon supply and cancellation back to mission
+route guidance. This is main-agent observed bridge evidence, not user NVDA
+confirmation.
+
+Xbox shortcut chords were exercised through engine inputs in the bridge/client
+flow; this confirms the request path at the engine boundary, not human controller
+or NVDA listening confirmation. MSVC build succeeded:
+`C:/Coding Projects/My Projects/APV Access/build/loot-build.log`. All 21
+regression runners in
+`C:/Coding Projects/My Projects/APV Access/build/loot-regressions/results.json`
+exited zero, including the new loot runner with 33 checks and the updated
+gameplay runner with 105 verified PASS assertions for View-left browse,
+View-down guide/cancel and the rest of the gameplay input suite. The checked
+owned test PID 20572 was gone. No game process was stopped during this cleanup
+pass.
+
+### Explicit snap to guidance direction — 2026-09-19
+
+Local, built, uncommitted and unpushed. Hold View/Back then click R3 to snap
+once to the active Marine guidance point. R3 alone remains history and L3 remains
+walk; no preset or saved profile changes. Input consumes the chord before history
+and respects custom bindings. Navigation uses the freshly computed route/supply
+waypoint with level pitch; nearby controls and visible combat targets include
+pitch. No automatic walking or firing. Combat identity, range and LOS are checked
+again before snapping. Lost targets, unknown routes and lift waiting refuse a
+snap. Sonar/tracker information alone is not a snap destination.
+
+`acc_snap.c` updates yaw/matrix/previous orientation and ViewPanX, clamps Marine
+pitch to +/-896, and suppresses old turning inertia and look input for that frame.
+Route target refresh suppresses pre-turn bearing speech. Existing guidance reset
+paths clear its stored snap point. Paused/dead/demo/multiplayer inputs are gated.
+
+Six affected regression runners passed (see parent `build/snap-regressions`):
+snap 17, route 83, combat 48; gameplay, loot and controller also passed. MSVC build
+passed (`build/snap-build.log`). Final-build bridge replay in
+`build/snap-final-2026-09-19` turned away from the CORR-15 opening, then View+R3
+returned yaw to the opening with only "Facing target." R3 alone still requested
+message-history speech; with guidance off the chord reported no guidance target.
+The owned replay was closed. This is engine/bridge observation, not user listening
+confirmation; live combat pitch and control interaction snapping remain to verify.
+
+### View modifier speech suppression � 2026-09-19
+
+View status now fires on a solo release, not initial press or a timer. Any other
+controller button during that hold cancels pending status, including repeated
+View chords and custom controller actions. Keyboard H remains immediate; custom
+View bindings retain their edges. Pause/focus loss, death and controller disconnect
+cancel the pending announcement. Existing bindings were not changed.
+
+Build passed (`build/view-modifier-build.log`). The gameplay fixture passed 135
+assertions, including delayed and repeated View+R3/Down/Left/Right, modifier release,
+subsequent solo tap, pause and disconnect (`build/view-modifier-input-tests.log`).
+This fix is local and built; user listening confirmation is still pending.
+
 ## 7. Debugging notes
 
 - Get real exit codes by running through a `.bat` that echoes `%ERRORLEVEL%`; PowerShell's
@@ -703,7 +1470,8 @@ local clang-tidy/configure tooling edits remain outside this accessibility commi
   whether the deliberately generous open-sector rule holds across the campaign.
   Corridor, dead-end and opening naming, the ping timing and the wall/opening
   distinction are user-confirmed (see §6).
-- Remaining gameplay accessibility work: route guidance to objectives, status and
+- Remaining gameplay accessibility work: complete and validate the initial route
+  guidance (see continuous guidance section above), status and
   tracker support for Predator and Alien, and assisted targeting. §3 lists the
   engine primitives each would build on. Route guidance is the one that decides
   whether a level can be *finished* rather than merely navigated.

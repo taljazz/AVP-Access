@@ -16,6 +16,7 @@
 #include "gamedef.h"
 #include "missions.hpp"
 #include "gadget.h"
+#include "acc_speech.h"
 
 	#define UseLocalAssert Yes
 	#include "ourasert.h"
@@ -256,6 +257,7 @@ void MissionObjective :: OnTriggering(void)
 					//complete level unless we are in paintball mode
 					if(!PaintBallMode.IsOn)
 					{
+						if (!AvP.LevelCompleted) AccSpeech_Say("Level complete.", 0);
 						AvP.LevelCompleted = 1;
 			  //		AvP.MainLoopRunning = 0;
 					}
@@ -648,6 +650,19 @@ extern "C" int AccObjectives_Count(void)
 		if (AccObjectives_IsVisible(oi())) count++;
 
 	return count;
+}
+
+extern "C" void *AccObjectives_RouteObjective(int index)
+{
+	int seen = 0;
+	if (index < 0) return NULL;
+	for (LIF<MissionObjective*> oi(&MissionObjective::GetAll()); !oi.done(); oi.next()) {
+		MissionObjective *objective = oi();
+		if (!AccObjectives_IsVisible(objective)) continue;
+		if (seen++ != index) continue;
+		return !objective->bAchieved() && objective->bAchievable() ? objective : NULL;
+	}
+	return NULL;
 }
 
 /* Fills in the visible objective at `index`. Returns zero when the index is out

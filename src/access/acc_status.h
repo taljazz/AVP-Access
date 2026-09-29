@@ -13,7 +13,10 @@ struct player_status;
 /* Returns 1 for a complete status line. Invalid/unavailable player state or an
    insufficient buffer returns 0. A nonempty buffer is always terminated. */
 int AccStatus_FormatMarine(const struct player_status *player, char *text, size_t size);
+int AccStatus_FormatPredator(const struct player_status *player, char *text, size_t size);
 void AccStatus_AnnounceMarine(const struct player_status *player);
+void AccStatus_AnnouncePredator(const struct player_status *player);
+void AccStatus_AnnouncePredatorVision(int visionMode);
 
 #ifdef __cplusplus
 }

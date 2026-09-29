@@ -282,12 +282,12 @@ static void gameplay_axes(void)
         {0,      32768, 32768, "neutral"},
         {7999,   32768, 32768, "inside positive dead zone"},
         {-7999,  32768, 32768, "inside negative dead zone"},
-        {8000,   40768, 33268, "positive dead-zone boundary"},
-        {-8000,  24768, 32268, "negative dead-zone boundary"},
-        {16384,  49152, 33792, "positive half deflection"},
-        {-16384, 16384, 31744, "negative half deflection"},
-        {32767,  65535, 34815, "positive full deflection"},
-        {-32768,     0, 30720, "negative full deflection"},
+        {8000,   32768, 32768, "positive dead-zone boundary"},
+        {-8000,  32768, 32768, "negative dead-zone boundary"},
+        {16384,  34645, 32885, "positive half deflection"},
+        {-16384, 30891, 32651, "negative half deflection"},
+        {32767,  49152, 33792, "positive full deflection"},
+        {-32768, 16384, 31744, "negative full deflection"},
         {0,      32768, 32768, "release to neutral"}
     };
     int axis, sample;

@@ -31,15 +31,40 @@ bindings and can report stalled, timeout or wrong_direction as well as ok.
 directory to the client with `-Directory`. The default is `build\bridge` beside
 the executable. Output is text JSON with a sequence number, current context,
 player state when available, events, and an optional absolute screenshot path.
+The player object includes engine floor-contact flags (`grounded` and
+`nearly_flat`), world linear velocity (`velocity.x/y/z`), and camera world
+position (`camera.x/y/z`). Camera is `null` when the view descriptor is absent;
+these fields are observations only and do not alter movement or route selection.
 
 Useful commands: `state`, `shot`, `tap enter`, `tap pad_r3`, `tap pad_right`,
 `hold w 200`, `run 1200`, `turn left 30`, `sounds all`, `sounds access`,
-`realtime`, `step`, and `quit`. Inputs can combine up to four keys with `+`.
+`realtime`, `step`, `map`, and `quit`. `map` takes no arguments, is available
+only during gameplay with a valid player pose, and exports the current map to
+`map.json` in the session bridge directory. It does not simulate a frame or
+send input. Its reply includes `detail: "map.json"` on success; export failures
+are returned in the normal `error` field.
+
+The map export contains copyrighted game data. Keep `map.json` local and do not
+commit, redistribute, or publish it. Inputs can combine up to four keys with `+`.
 Timed commands accept up to 60,000 ms. `shot` can follow movement commands.
 
 Gameplay defaults to fixed steps of approximately 1/30 second and waits between
 commands. Menus/loading continue on wall time. `realtime` allows gameplay to run
 freely; `step` restores held time. The bridge does not capture the physical mouse.
+
+## Survey mode
+
+For isolated traversal surveys only, set `AVP_BRIDGE_SURVEY=1` in the game's
+environment before launching with `--bridge`. Survey mode is active only while
+the bridge is active and the variable is exactly `1`. It marks the player
+immortal during bridge gameplay and prints a startup warning. It does not reset
+health or armor. Route guidance also skips automatic combat takeover in this mode;
+enemies remain active and can physically obstruct movement. This is a navigation
+diagnostic, not an assisted normal play mode. Do not infer combat performance,
+damage, or combat survival from it. Use only a disposable isolated profile with no
+save you need to preserve; the bridge does not snapshot or restore game saves.
+Unset the variable for ordinary bridge sessions. Without this exact opt-in, the
+normal gameplay path is unchanged.
 
 ## Logs and timing
 

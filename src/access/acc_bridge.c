@@ -8,12 +8,14 @@
 #include "dynblock.h"
 #include "gamedef.h"
 #include "bh_types.h"
+#include "avpview.h"
 #include "usr_io.h"
 
 #include <SDL3/SDL.h>
 
 #include "acc_bridge.h"
 #include "acc_bridge_core.h"
+#include "acc_map.h"
 #include "acc_speech.h"
 #include "acc_status.h"
 
@@ -61,6 +63,8 @@ extern int InGameMenusAreRunning(void);
 
 static int  Enabled, Audible, Started;
 static char Dir[700];
+static PLAYER_STATUS *SurveyStatus;
+static int SurveyOriginalImmortal, SurveyImmortalSaved;
 
 static int  StepMode = 1;
 static int  InGameplay;
@@ -82,6 +86,7 @@ static int                ReplyWantsShot;
 static ACC_BRIDGE_COMMAND ReplyCmd;
 static const char        *ReplyResult;
 static char               ReplyError[128];
+static char               ReplyDetail[760];
 static int                ReplyTurned;
 static unsigned long      ReplyAfterFlip;
 static Uint64             ReplyDeadline;
@@ -99,6 +104,29 @@ static struct {
     int  played;
 } Cues[CUE_DEPTH];
 static int CueDepth;
+
+static void SurveyRestoreImmortality(void)
+{
+    if (SurveyImmortalSaved && SurveyStatus == PlayerStatusPtr && SurveyStatus)
+        SurveyStatus->IsImmortal = SurveyOriginalImmortal;
+    SurveyStatus = NULL;
+    SurveyImmortalSaved = 0;
+}
+
+static void SurveyApplyImmortality(void)
+{
+    if (!AccBridge_IsSurvey() || !InGameplay || !PlayerStatusPtr) {
+        SurveyRestoreImmortality();
+        return;
+    }
+    if (SurveyStatus != PlayerStatusPtr) {
+        SurveyRestoreImmortality();
+        SurveyStatus = PlayerStatusPtr;
+        SurveyOriginalImmortal = PlayerStatusPtr->IsImmortal;
+        SurveyImmortalSaved = 1;
+    }
+    PlayerStatusPtr->IsImmortal = 1;
+}
 
 /* ---------------------------------------------------------------- clock -- */
 
@@ -417,6 +445,10 @@ static int WriteReply(const char *shotPath, const char *shotError)
         AccBridge_JsonEscape(ReplyError, escaped, sizeof(escaped));
         Append(&pos, ",\"error\":\"%s\"", escaped);
     }
+    if (ReplyDetail[0]) {
+        AccBridge_JsonEscape(ReplyDetail, escaped, sizeof(escaped));
+        Append(&pos, ",\"detail\":\"%s\"", escaped);
+    }
     if (ReplyCmd.verb == ACC_BRIDGE_TURN)
         Append(&pos, ",\"turned\":%d", (ReplyTurned * 360 + (ReplyTurned >= 0 ? 2048 : -2048)) / ACC_BRIDGE_YAW_TURN);
 
@@ -428,10 +460,13 @@ static int WriteReply(const char *shotPath, const char *shotError)
     if (PlayerPose(&x, &y, &z, &yaw, &pitch)) {
         char status[512];
         const char *module = (playerPherModule && playerPherModule->name) ? playerPherModule->name : "";
+        DYNAMICSBLOCK *dynamics = Player->ObStrategyBlock->DynPtr;
 
         status[0] = 0;
         if (AvP.PlayerType == I_Marine && PlayerStatusPtr)
             AccStatus_FormatMarine((const struct player_status *)PlayerStatusPtr, status, sizeof(status));
+        else if (AvP.PlayerType == I_Predator && PlayerStatusPtr)
+            AccStatus_FormatPredator((const struct player_status *)PlayerStatusPtr, status, sizeof(status));
 
         Append(&pos, ",\n\"player\":{\"species\":\"%s\",\"alive\":%d,\"x\":%d,\"y\":%d,\"z\":%d,\"yaw\":%d,\"heading\":%d,\"pitch\":%d",
                SpeciesName(), PlayerStatusPtr ? (PlayerStatusPtr->IsAlive ? 1 : 0) : 0,
@@ -439,7 +474,23 @@ static int WriteReply(const char *shotPath, const char *shotError)
         AccBridge_JsonEscape(module, escaped, sizeof(escaped));
         Append(&pos, ",\"module\":\"%s\"", escaped);
         AccBridge_JsonEscape(status, escaped, sizeof(escaped));
-        Append(&pos, ",\"status\":\"%s\"}", escaped);
+        Append(&pos, ",\"status\":\"%s\"", escaped);
+        if (dynamics) {
+            Append(&pos, ",\"grounded\":%s,\"nearly_flat\":%s,\"velocity\":{\"x\":%d,\"y\":%d,\"z\":%d}",
+                   dynamics->IsInContactWithFloor ? "true" : "false",
+                   dynamics->IsInContactWithNearlyFlatFloor ? "true" : "false",
+                   dynamics->LinVelocity.vx, dynamics->LinVelocity.vy, dynamics->LinVelocity.vz);
+        } else {
+            Append(&pos, ",\"grounded\":null,\"nearly_flat\":null,\"velocity\":null");
+        }
+        if (Global_VDB_Ptr) {
+            Append(&pos, ",\"camera\":{\"x\":%d,\"y\":%d,\"z\":%d}",
+                   Global_VDB_Ptr->VDB_World.vx, Global_VDB_Ptr->VDB_World.vy,
+                   Global_VDB_Ptr->VDB_World.vz);
+        } else {
+            Append(&pos, ",\"camera\":null");
+        }
+        Append(&pos, "}");
     } else {
         Append(&pos, ",\n\"player\":null");
     }
@@ -493,6 +544,7 @@ static void QueueReply(const ACC_BRIDGE_COMMAND *cmd, const char *result, const 
     ReplyResult = result;
     ReplyWantsShot = (cmd->shot || cmd->verb == ACC_BRIDGE_SHOT) && strcmp(result, "error") != 0;
     snprintf(ReplyError, sizeof(ReplyError), "%s", error ? error : "");
+    ReplyDetail[0] = 0;
     ReplyDeadline = SDL_GetTicks() + SHOT_WAIT_MS;
     ReplyRetryAt = 0;
 
@@ -569,6 +621,24 @@ static void StartCommand(const ACC_BRIDGE_COMMAND *cmd)
         AllSounds = cmd->allSounds;
         QueueReply(cmd, "ok", NULL);
         return;
+    case ACC_BRIDGE_MAP:
+    {
+        char path[760], error[128];
+
+        if (!PlayerPose(NULL, NULL, NULL, NULL, NULL)) {
+            QueueReply(cmd, "error", "map only works during gameplay with a valid player pose");
+            return;
+        }
+        PathFor("map.json", path, sizeof(path));
+        error[0] = 0;
+        if (!AccMap_Export(path, error, sizeof(error))) {
+            QueueReply(cmd, "error", error[0] ? error : "map export failed");
+            return;
+        }
+        QueueReply(cmd, "ok", NULL);
+        snprintf(ReplyDetail, sizeof(ReplyDetail), "map.json");
+        return;
+    }
     case ACC_BRIDGE_QUIT:
         QueueReply(cmd, "ok", NULL);
         FlushReplyIfReady();
@@ -679,6 +749,11 @@ void AccBridge_Enable(const char *dir, int audible)
 }
 
 int AccBridge_IsActive(void) { return Enabled; }
+int AccBridge_IsSurvey(void)
+{
+    const char *value = getenv("AVP_BRIDGE_SURVEY");
+    return Enabled && value && !strcmp(value, "1");
+}
 int AccBridge_Muted(void)    { return Enabled && !Audible; }
 
 void AccBridge_Start(void)
@@ -736,6 +811,10 @@ void AccBridge_Start(void)
     atexit(BridgeShutdown);
     Started = 1;
     fprintf(stderr, "AVP Access: bridge ready in %s (%s)\n", Dir, Audible ? "audible" : "muted");
+    if (AccBridge_IsSurvey()) {
+        fprintf(stderr, "AVP Access: SURVEY MODE enabled: isolated profile only; player is immortal during bridge gameplay. Damage and combat observations are invalid.\n");
+        fflush(stderr);
+    }
 }
 
 void AccBridge_EnterGameplay(void)
@@ -746,6 +825,7 @@ void AccBridge_EnterGameplay(void)
 
     AccBridge_NowMs();
     InGameplay = 1;
+    SurveyApplyImmortality();
     free(Frame);
     Frame = NULL;
 
@@ -760,6 +840,7 @@ void AccBridge_LeaveGameplay(void)
 
     AccBridge_NowMs();
     InGameplay = 0;
+    SurveyApplyImmortality();
     if (Runner.active && Runner.byFrames) AccBridgeRunner_SwitchToClock(&Runner, AccBridge_NowMs());
     AddEvent("gameplay_ended", NULL);
 }
@@ -767,6 +848,7 @@ void AccBridge_LeaveGameplay(void)
 void AccBridge_WaitForFrame(void)
 {
     if (!Enabled || !Started) return;
+    SurveyApplyImmortality();
 
     for (;;) {
         int yaw = 0;
@@ -803,6 +885,8 @@ void AccBridge_Service(void)
     unsigned int now;
 
     if (!Enabled || !Started) return;
+
+    SurveyApplyImmortality();
 
     now = AccBridge_NowMs();
 

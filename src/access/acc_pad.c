@@ -34,8 +34,7 @@ static int PadSubsystemReady;
 int AccPadTrace;
 static char PadName[128] = "none";
 
-/* Sticks rest a long way off centre on worn hardware, so the dead zone is
-   generous; the engine applies its own on top. */
+/* Ignore resting drift, then start smoothly from zero at this boundary. */
 #define ACC_STICK_DEADZONE 8000
 
 /* The trackerball path multiplies by a sensitivity of 32, and was written for a
@@ -132,6 +131,21 @@ static int DeadZone(int v)
 	return v;
 }
 
+/* Fine movement/aim near centre, half the old speed at full deflection.
+   Use the actual signed endpoint so both directions have equal maximum speed.
+   Menu navigation deliberately retains its independent digital threshold. */
+static int StickResponse(int value)
+{
+	int magnitude = value < 0 ? -value : value;
+	int endpoint = value < 0 ? 32768 : 32767;
+	double travel;
+	int result;
+	if (magnitude <= ACC_STICK_DEADZONE) return 0;
+	travel = (double)(magnitude - ACC_STICK_DEADZONE) / (endpoint - ACC_STICK_DEADZONE);
+	result = (int)(travel * travel * 16384.0);
+	return value < 0 ? -result : result;
+}
+
 void AccPad_ReadAxes(void)
 {
 	int lx, ly, rx, ry;
@@ -149,10 +163,10 @@ void AccPad_ReadAxes(void)
 
 	SDL_UpdateGamepads();
 
-	lx = DeadZone(SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_LEFTX));
-	ly = DeadZone(SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_LEFTY));
-	rx = DeadZone(SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_RIGHTX));
-	ry = DeadZone(SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_RIGHTY));
+	lx = StickResponse(SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_LEFTX));
+	ly = StickResponse(SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_LEFTY));
+	rx = StickResponse(SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_RIGHTX));
+	ry = StickResponse(SDL_GetGamepadAxis(Pad, SDL_GAMEPAD_AXIS_RIGHTY));
 
 	/* Left stick: the engine reads dwYpos as forward/back and dwXpos as
 	   sidestep. SDL's Y is negative upwards, which is already what the engine

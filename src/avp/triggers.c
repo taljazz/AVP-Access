@@ -13,6 +13,7 @@
 #include "triggers.h"
 #include "pldnet.h"
 #include "los.h"
+#include "pvisible.h"
 
 #define UseLocalAssert Yes
 #include "ourasert.h"
@@ -28,7 +29,7 @@ extern DISPLAYBLOCK *OnScreenBlockList[];
 extern VIEWDESCRIPTORBLOCK *Global_VDB_Ptr;
 
 
-void OperateObjectInLineOfSight(void)
+DISPLAYBLOCK *GetOperableObjectInLineOfSight(void)
 {
 	int numberOfObjects = NumOnScreenBlocks;
 	
@@ -75,12 +76,34 @@ void OperateObjectInLineOfSight(void)
 		}
 	}
 
+	if (nearestObjectPtr && IsThisObjectVisibleFromThisPosition_WithIgnore(
+		Player,nearestObjectPtr,&nearestObjectPtr->ObWorld,10000)) return nearestObjectPtr;
+	return NULL;
+}
+
+int GetInteractionObstruction(DISPLAYBLOCK *control)
+{
+    STRATEGYBLOCK *blocker;
+    VECTORCH position;
+    if (!Player || !control) return 1;
+    position = control->ObWorld;
+    if (IsThisObjectVisibleFromThisPosition_WithIgnore(Player, control, &position, 10000)) return 0;
+    blocker = LOS_ObjectHitPtr ? LOS_ObjectHitPtr->ObStrategyBlock : NULL;
+    if (blocker && blocker->I_SBtype == I_BehaviourInanimateObject && blocker->SBdataptr) {
+        INANIMATEOBJECT_STATUSBLOCK *data = (INANIMATEOBJECT_STATUSBLOCK *)blocker->SBdataptr;
+        if (!data->Indestructable && !data->explosionType &&
+            (data->typeId == IOT_Static || data->typeId == IOT_Furniture)) return 2;
+    }
+    return 1;
+}
+
+void OperateObjectInLineOfSight(void)
+{
+	DISPLAYBLOCK *nearestObjectPtr = GetOperableObjectInLineOfSight();
 	/* if we found a suitable object, operate it */
 	if (nearestObjectPtr)
 	{
-		//only allow activation if you have a line of sight to the switch
-		//allow the switch to be activated anyway for the moment
-		if(IsThisObjectVisibleFromThisPosition_WithIgnore(Player,nearestObjectPtr,&nearestObjectPtr->ObWorld,10000))
+		/* Visibility was checked by the shared read-only selector above. */
 		{
 			switch(nearestObjectPtr->ObStrategyBlock->I_SBtype)
 			{

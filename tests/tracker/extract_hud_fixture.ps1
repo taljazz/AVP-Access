@@ -19,7 +19,7 @@ $headerEnd = $text.IndexOf('extern int ScanDrawMode;')
 $stateStart = $text.IndexOf('/* motion tracker info */')
 $stateEnd = $text.IndexOf('int predHUDSoundHandle=')
 $speed = [regex]::Match($text, '(?m)^int MotionTrackerSpeed[^\n]*\nint MotionTrackerVolume[^\n]*\n#define MOTIONTRACKERVOLUME[^\n]*')
-$gate = [regex]::Match($text, '(?s)trackerActive = AvP\.PlayerType==I_Marine.*?AccSonar_Reset\(\);')
+$gate = [regex]::Match($text, '(?s)trackerActive = AvP\.PlayerType==I_Marine.*?AccRoute_Reset\(\);\s*\}')
 if ($headerEnd -lt 0 -or $stateStart -lt 0 -or $stateEnd -lt $stateStart -or !$speed.Success -or !$gate.Success) {
     throw 'HUD fixture source boundaries changed; review the extractor before running tests.'
 }

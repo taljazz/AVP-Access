@@ -17,6 +17,7 @@
 
 #include "ourasert.h"
 #include "bh_plift.h"
+#include "acc_lift_route.h"
 
 /* for win95 net game support */
 #include "pldnet.h"
@@ -89,6 +90,9 @@ void PlatformLiftBehaviour(STRATEGYBLOCK *sbPtr)
 		}
 		case(PLBS_Activating):
 		{
+			/* Spoken guidance must leave enough time to step off. Only its
+			   selected single-player landing is held, while actually aboard. */
+			if(AvP.Network==I_No_Network && AccLiftRoute_HoldAtLanding(sbPtr)) break;
 			if(AvP.Network!=I_Peer)
 			{
 				if(platformliftdata->activationDelayTimer>0)

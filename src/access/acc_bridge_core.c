@@ -214,6 +214,7 @@ static const struct { const char *name; ACC_BRIDGE_VERB verb; } Verbs[] = {
     { "hold", ACC_BRIDGE_HOLD },     { "tap", ACC_BRIDGE_TAP },
     { "turn", ACC_BRIDGE_TURN },     { "shot", ACC_BRIDGE_SHOT },
     { "sounds", ACC_BRIDGE_SOUNDS }, { "quit", ACC_BRIDGE_QUIT },
+    { "map", ACC_BRIDGE_MAP },
 };
 
 const char *AccBridge_VerbName(ACC_BRIDGE_VERB verb)

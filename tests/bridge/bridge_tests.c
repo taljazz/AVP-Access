@@ -38,6 +38,8 @@ static void test_parse_basic(void)
     check(parse("1 step", &cmd) && cmd.verb == ACC_BRIDGE_STEP, "step parses");
     check(parse("1 realtime", &cmd) && cmd.verb == ACC_BRIDGE_REALTIME, "realtime parses");
     check(parse("1 shot", &cmd) && cmd.verb == ACC_BRIDGE_SHOT, "shot parses");
+    check(parse("1 map", &cmd) && cmd.verb == ACC_BRIDGE_MAP && !cmd.keyCount && !cmd.ms,
+          "map parses without arguments");
     check(parse("1 quit", &cmd) && cmd.verb == ACC_BRIDGE_QUIT, "quit parses");
     check(parse("1 sounds all", &cmd) && cmd.verb == ACC_BRIDGE_SOUNDS && cmd.allSounds == 1,
           "sounds all turns every sound on");
@@ -106,6 +108,8 @@ static void test_parse_errors(void)
     check(parse("7 run 100 200", &cmd) == 0, "a second duration is refused");
     check(parse("7 sounds loud", &cmd) == 0, "an unknown sounds setting is refused");
     check(parse("7 shot shot", &cmd) == 0, "shot does not take a shot option");
+    check(parse("7 map extra", &cmd) == 0 && strstr(cmd.error, "extra"),
+          "map refuses arguments");
     check(parse("7 tap a b c d e f g h i", &cmd) == 0 && cmd.seq == 7 && strstr(cmd.error, "too long"),
           "too many words are refused with a correlatable sequence");
     check(parse(NULL, &cmd) == 0, "a NULL command is refused");

@@ -22,6 +22,7 @@
 *                                    P R O T O T Y P E S	                                *
 ****************************************************************************************KJL*/
 #include "vision.h"
+#include "acc_status.h"
 #include "frustum.h"
 #include "avpview.h"
 #include "game_statistics.h"
@@ -224,6 +225,7 @@ extern void ChangePredatorVisionMode(void)
 	}
 	Sound_Play(SID_VISION_ON,"h");
 	PredatorVisionChangeCounter=ONE_FIXED;
+	AccStatus_AnnouncePredatorVision(CurrentVisionMode);
 }
 
 
