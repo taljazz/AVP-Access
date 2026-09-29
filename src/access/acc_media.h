@@ -55,6 +55,15 @@ void AccMedia_Update(void);
    A file with no video stream plays as audio only. */
 void AccMedia_PlayMovie(const char *filename);
 
+/* --- animated front-end background ----------------------------------- */
+
+/* Start the looping FMVs/menubackground.bik animation. Frame updates are
+   nonblocking and draw into the shared software surface without presenting
+   it, so the normal menu renderer can add overlays and flip the frame. */
+void AccMedia_MenuBackgroundStart(void);
+int  AccMedia_MenuBackgroundFrame(void);
+void AccMedia_MenuBackgroundEnd(void);
+
 /* --- in-game plot messages --------------------------------------------- */
 
 /* The story briefings that appear on wall monitors mid-level (message<N>.smk,

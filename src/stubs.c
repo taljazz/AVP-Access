@@ -26,10 +26,7 @@ int VideoModeNotAvailable=0;
 
 /* bink.c */
 
-/* AVP Access: the port shipped these as empty stubs, so the game had no
-   cutscenes at all. We decode the audio track -- which is what carries the
-   story for a player who cannot see the picture -- and let any key skip it.
-   The menu background movie stays a no-op: it is decoration with no audio. */
+/* AVP Access: decode cutscenes and the animated front-end background. */
 void PlayBinkedFMV(char *filenamePtr)
 {
 	AccMedia_PlayMovie(filenamePtr);
@@ -37,24 +34,17 @@ void PlayBinkedFMV(char *filenamePtr)
 
 void StartMenuBackgroundBink()
 {
-/*
-	fprintf(stderr, "StartMenuBackgroundBink()\n");
-*/
+	AccMedia_MenuBackgroundStart();
 }
 
 int PlayMenuBackgroundBink()
 {
-/*
-	fprintf(stderr, "PlayMenuBackgroundBink()\n");
-*/	
-	return 0;
+	return AccMedia_MenuBackgroundFrame();
 }
 
 void EndMenuBackgroundBink()
 {
-/*
-	fprintf(stderr, "EndMenuBackgroundBink()\n");
-*/
+	AccMedia_MenuBackgroundEnd();
 }
 
 /* alt_tab.cpp */

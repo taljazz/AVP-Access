@@ -6,8 +6,12 @@ int main(void)
     unsigned char palette[256][3] = { { 0 } };
     if (AccMedia_Init() || AccMedia_IsAvailable() || AccMedia_PlayMenuMusic() ||
         AccMedia_PlayTrack(1) || AccMedia_TrackIsPlaying() ||
-        AccMedia_PlotStart(1) || AccMedia_PlotIsPlaying() ||
+        AccMedia_MenuBackgroundFrame() || AccMedia_PlotStart(1) || AccMedia_PlotIsPlaying() ||
         AccMedia_PlotFrame(pixel, 1, 1, palette)) return 1;
+    AccMedia_MenuBackgroundStart();
+    if (AccMedia_MenuBackgroundFrame()) return 1;
+    AccMedia_MenuBackgroundEnd();
+    AccMedia_MenuBackgroundEnd();
     AccMedia_StopTrack();
     AccMedia_SetVolume(127);
     AccMedia_Update();

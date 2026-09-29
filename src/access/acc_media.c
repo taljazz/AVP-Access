@@ -85,6 +85,9 @@ typedef struct
 
 static ACC_STREAM Music;
 static ACC_STREAM Plot;      /* in-game wall-monitor briefings */
+static ACC_STREAM MenuBackground;
+static Uint64 MenuBackgroundStarted;
+static int MenuBackgroundActive;
 static int MediaReady;
 static int MediaFailed;
 static int MenuMusicFailed;  /* avoid retrying a missing/bad theme every frame */
@@ -575,7 +578,7 @@ static int SetupVideoScaler(ACC_STREAM *s)
 	return s->sws != NULL;
 }
 
-static void PresentFrame(ACC_STREAM *s, AVFrame *f)
+static void ScaleFrameToSurface(ACC_STREAM *s, AVFrame *f)
 {
 	uint8_t *dst[4] = { NULL, NULL, NULL, NULL };
 	int dstStride[4] = { 0, 0, 0, 0 };
@@ -589,7 +592,11 @@ static void PresentFrame(ACC_STREAM *s, AVFrame *f)
 
 	sws_scale(s->sws, (const uint8_t * const *)f->data, f->linesize,
 	          0, s->vDec->height, dst, dstStride);
+}
 
+static void PresentFrame(ACC_STREAM *s, AVFrame *f)
+{
+	ScaleFrameToSurface(s, f);
 	FlipBuffers();
 }
 
@@ -623,6 +630,8 @@ int AccMedia_Init(void)
 
 void AccMedia_Shutdown(void)
 {
+	StreamClose(&MenuBackground);
+	MenuBackgroundActive = 0;
 	if (!MediaReady) return;
 
 	StreamClose(&Music);
@@ -982,6 +991,97 @@ void AccMedia_PlayMovie(const char *filename)
 	}
 }
 
+/* ------------------------------------------------ animated menu background -- */
+
+void AccMedia_MenuBackgroundStart(void)
+{
+	StreamClose(&MenuBackground);
+	MenuBackgroundActive = 0;
+
+	if (!StreamOpen(&MenuBackground, "fmvs/menubackground.bik", 1))
+		return;
+
+	if (!MenuBackground.vDec || !SetupVideoScaler(&MenuBackground)) {
+		StreamClose(&MenuBackground);
+		return;
+	}
+
+	MenuBackgroundStarted = SDL_GetTicks();
+	MenuBackgroundActive = 1;
+}
+
+int AccMedia_MenuBackgroundFrame(void)
+{
+	int budget = 32;
+	AVFrame *show = NULL;
+	double elapsed;
+	Uint64 now;
+	int i;
+
+	if (!MenuBackgroundActive || !MenuBackground.open || !surface)
+		return 0;
+
+	now = SDL_GetTicks();
+	elapsed = (double)(now - MenuBackgroundStarted) / 1000.0;
+
+	/* Decode only a small packet budget per menu call. The queue is timestamped
+	   by the media clock, while SDL ticks keep playback independent of render
+	   rate and do not block the menu thread. */
+	while (MenuBackground.vCount < 4 && !MenuBackground.eof && budget-- > 0) {
+		if (!DecodeStep(&MenuBackground)) break;
+	}
+
+	while (MenuBackground.vCount > 0 &&
+	       (MenuBackground.vPts[0] < 0.0 ||
+	        MenuBackground.vPts[0] <= elapsed)) {
+		if (show) av_frame_free(&show);
+		show = MenuBackground.vQueue[0];
+		for (i = 1; i < MenuBackground.vCount; i++) {
+			MenuBackground.vQueue[i - 1] = MenuBackground.vQueue[i];
+			MenuBackground.vPts[i - 1] = MenuBackground.vPts[i];
+		}
+		MenuBackground.vCount--;
+	}
+
+	if (show) {
+		if (MenuBackground.vCurrent)
+			av_frame_free(&MenuBackground.vCurrent);
+		MenuBackground.vCurrent = show;
+	}
+
+	if (MenuBackground.eof && MenuBackground.vCount == 0) {
+		/* Keep the last picture available while reopening the file for its next
+		   loop. StreamClose normally releases this frame with the decoder. */
+		AVFrame *lastFrame = MenuBackground.vCurrent;
+		MenuBackground.vCurrent = NULL;
+		StreamClose(&MenuBackground);
+		if (!StreamOpen(&MenuBackground, "fmvs/menubackground.bik", 1) ||
+		    !MenuBackground.vDec || !SetupVideoScaler(&MenuBackground)) {
+			if (lastFrame) av_frame_free(&lastFrame);
+			StreamClose(&MenuBackground);
+			MenuBackgroundActive = 0;
+			return 0;
+		}
+		MenuBackground.vCurrent = lastFrame;
+		MenuBackgroundStarted = now;
+	}
+
+	if (!MenuBackground.vCurrent) return 0;
+
+	/* The menu draws text over this shared surface after this call. Repaint the
+	   full background on every render so those overlays never remain burned into
+	   a later animation frame. */
+	ClearSurface();
+	ScaleFrameToSurface(&MenuBackground, MenuBackground.vCurrent);
+	return 1;
+}
+
+void AccMedia_MenuBackgroundEnd(void)
+{
+	StreamClose(&MenuBackground);
+	MenuBackgroundActive = 0;
+}
+
 #else /* no ACC_HAVE_FFMPEG ------------------------------------------------- */
 
 #include "acc_media.h"
@@ -996,6 +1096,9 @@ int  AccMedia_TrackIsPlaying(void){ return 0; }
 void AccMedia_SetVolume(int v)    { (void)v; }
 void AccMedia_Update(void)        { }
 void AccMedia_PlayMovie(const char *filename) { (void)filename; }
+void AccMedia_MenuBackgroundStart(void) { }
+int  AccMedia_MenuBackgroundFrame(void) { return 0; }
+void AccMedia_MenuBackgroundEnd(void) { }
 
 int  AccMedia_PlotStart(int n)   { (void)n; return 0; }
 void AccMedia_PlotStop(void)     { }
